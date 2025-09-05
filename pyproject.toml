@@ -1,0 +1,76 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "rx-scanner"
+version = "0.1.0"
+description = "処方箋OCR・レセプトデータ作成アプリ"
+authors = [
+    {name = "Yuki Nagao", email = "dev@curifun.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "PySide6>=6.6.0,<7.0",
+    "opencv-python>=4.8.0,<5.0",
+    "pytesseract>=0.3.10",
+    "Pillow>=10.0.0",
+    "pandas>=2.1.0,<3.0",
+    "numpy>=1.26.0",
+    "sqlalchemy>=2.0.0,<3.0",
+    "openpyxl>=3.1.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0,<9.0",
+    "pytest-cov>=6.0.0,<7.0",
+    "ruff>=0.1.0",
+    "mypy>=1.13.0",
+]
+
+[tool.poetry]
+package-mode = false
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+fix = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = ["E203"]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py", "tests.py"]
+addopts = "--cov=rx_scanner --cov-report=html --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["rx_scanner"]
+omit = [
+    "*/tests/*",
+    "*/venv/*",
+    "*/resources/*",
+    "*/data/*",
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "cv2.*",
+    "pytesseract.*", 
+    "easyocr.*",
+]
+ignore_missing_imports = true
