@@ -36,9 +36,6 @@ env.bak/
 venv.bak/
 .conda/
 
-# Poetry
-poetry.lock
-
 # IDE
 .vscode/
 .idea/

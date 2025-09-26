@@ -4,30 +4,38 @@ Prescription OCR and Receipt Data Generation Application
 
 ## Overview
 
-A desktop application designed to streamline prescription processing in medical settings. Utilizes image processing and OCR technology to automatically generate receipt data from prescription images.
+A desktop application designed to streamline prescription processing in medical settings. Uses image processing and OCR technology to automatically generate receipt data from prescription images. Currently features a complete medicine search and database system, with OCR functionality ready for implementation.
 
 ## Key Features
 
-### Prescription Processing Tab (Main Function)
-- Load and display prescription images
-- OCR processing for text recognition
-- Automatic matching with medicine master database
-- Export receipt data to CSV format
+### ✅ Medicine Search Tab (Implemented)
+- **High-Speed Full-Text Search**: Fast search across 12,720 medicine records
+- **Japanese Language Support**: Search in Hiragana, Katakana, and Kanji
+- **Incremental Search**: Real-time search results update
+- **Detailed Information Display**: Product name, ingredient, specification, price, manufacturer
+- **Prescription Tab Integration**: Seamless integration with prescription processing
 
-### Medicine Search Tab (Sub Function)
-- High-speed search across entire medicine master database
-- Incremental search support
-- Display detailed medicine information
-- Integration with prescription processing tab
+### ✅ Database System (Implemented)
+- **SQLite + FTS5**: High-performance full-text search database
+- **12,720 Medicine Master Records**: Real pharmaceutical database
+- **CSV Bulk Import**: Easy external data integration
+- **Backup Functionality**: Data safety and integrity
+
+### 🚧 Prescription Processing Tab (In Development)
+- Prescription image loading and display
+- OCR processing for text recognition
+- Automatic medicine database matching
+- CSV format receipt data export
 
 ## Tech Stack
 
-- **Framework**: PySide6 (Qt6 Python bindings)
-- **Image Processing**: OpenCV
-- **OCR**: Tesseract OCR
-- **Database**: SQLite + SQLAlchemy
+- **GUI**: PySide6 (Qt6 Python bindings)
+- **Database**: SQLite + FTS5 full-text search
 - **Data Processing**: pandas, numpy
+- **Image Processing**: OpenCV (ready)
+- **OCR**: Tesseract OCR (ready)
 - **Development**: Python 3.12 + Poetry
+- **Code Quality**: ruff, mypy, pytest
 
 ## Setup
 
@@ -35,7 +43,7 @@ A desktop application designed to streamline prescription processing in medical 
 
 - Python 3.12
 - Poetry (dependency management)
-- Tesseract OCR
+- Tesseract OCR (for OCR functionality)
 
 ### Installation
 
@@ -66,42 +74,63 @@ poetry install
 poetry shell
 ```
 
-4. **Run Application**
+4. **Database Setup**
 ```bash
-python rx_scanner/main.py
+# Initialize with sample data (for development)
+python -m rx_scanner.database.setup_db
+
+# Import actual medicine data (for production use)
+python -m rx_scanner.database.import_csv data/product_list.csv
+```
+
+5. **Run Application**
+```bash
+python -m rx_scanner.main
 ```
 
 ## Usage
 
-### Basic Workflow
+### Medicine Search
 
-1. **Load Prescription Image**: Click "Open Image" to select prescription image
-2. **Run OCR**: Click "Run OCR" to start text recognition
-3. **Review & Edit**: Manually correct OCR results if needed
-4. **Match Medicines**: Click "Match Medicines" to cross-reference with medicine database
-5. **Export CSV**: Click "Export CSV" to save receipt data
+1. **Basic Search**: Search by medicine name or ingredient
+   - Example: "Aspirin", "Loxonin"
+2. **Partial Match Search**: Search with partial characters
+   - Example: "Loxo" → Shows Loxonin-related medicines
+3. **View Details**: Click search results for detailed information
+4. **Price & Manufacturer**: Check drug prices and manufacturer info
 
-### Medicine Search Function
+### Database Management
 
-- Use "Medicine Search" tab for independent medicine lookup
-- Incremental search starts with 2+ characters
-- Select search results to view detailed information
-- Click "Add to Prescription Tab" for integration
+```bash
+# Preview data (first 10 records)
+python -m rx_scanner.database.import_csv data/product_list.csv --preview
+
+# Replace existing data with import
+python -m rx_scanner.database.import_csv data/product_list.csv
+
+# Add to existing data
+python -m rx_scanner.database.import_csv data/product_list.csv --append
+
+# Direct SQLite data inspection
+sqlite3 rx_scanner/database/medicine_data.db
+```
 
 ## Development Status
 
-### ✅ Implemented Features
+### ✅ Completed Features
 - [x] Tab-based UI design
-- [x] Image loading and display
-- [x] Basic OCR processing framework
-- [x] Medicine search UI (with dummy data)
+- [x] Medicine search functionality (FTS5 full-text search)
+- [x] Medicine master database (12,720 records)
+- [x] CSV bulk import functionality
+- [x] Database backup functionality
+- [x] Japanese language search support
 - [x] Inter-tab integration
-- [x] Basic CSV export functionality
 
 ### 🚧 Planned Features
-- [ ] Actual OCR processing (Tesseract integration)
-- [ ] Medicine master database construction
-- [ ] Medicine matching logic implementation
+- [ ] OCR processing (Tesseract integration)
+- [ ] Medicine matching logic
+- [ ] Prescription image processing
+- [ ] Receipt CSV export
 - [ ] Enhanced error handling
 - [ ] Performance optimization
 
@@ -109,25 +138,41 @@ python rx_scanner/main.py
 
 ```
 rx-scanner/
-├── pyproject.toml          # Poetry configuration and dependencies
+├── pyproject.toml              # Poetry configuration & dependencies
 ├── README.md
-├── rx_scanner/             # Main package
-│   ├── main.py            # Application entry point
-│   ├── ui/                # User interface
-│   │   ├── main_window.py # Main window
+├── rx_scanner/                 # Main package
+│   ├── main.py                # Application entry point
+│   ├── ui/                    # User interface
+│   │   ├── main_window.py     # Main window
 │   │   ├── prescription_tab.py # Prescription processing tab
-│   │   └── search_tab.py  # Medicine search tab
-│   ├── database/          # Database related
-│   │   ├── db_manager.py  # Database operations
-│   │   └── setup_db.py    # Database initialization
-│   └── utils/             # Utilities
-│       └── file_utils.py  # File operations
-├── tests/                 # Test files
-├── resources/             # Resource files
-│   └── sample_images/     # Sample prescription images
-└── data/                  # Data files
-    └── medicine_master.csv # Medicine master data
+│   │   └── search_tab.py      # Medicine search tab
+│   ├── database/              # Database related
+│   │   ├── db_manager.py      # SQLite operations & FTS5 search
+│   │   ├── setup_db.py        # Sample data initialization
+│   │   └── import_csv.py      # CSV bulk import
+│   └── utils/                 # Utilities
+│       └── file_utils.py      # File operations
+├── tests/                     # Test files
+├── resources/                 # Resource files
+│   └── sample_images/         # Sample prescription images
+└── data/                      # Data files
+    └── product_list.csv       # Medicine master data (12,720 records)
 ```
+
+## Database Schema
+
+### Medicine Master Table
+- **product_name**: Product name
+- **ingredient_name**: Active ingredient name
+- **specification**: Specification (dosage, form)
+- **classification**: Classification (internal/external medicine)
+- **price**: Drug price
+- **manufacturer**: Manufacturer
+
+### Search Features
+- **FTS5 full-text search engine**
+- **Japanese morphological analysis** support
+- **Partial matching & fuzzy search**
 
 ## License
 
