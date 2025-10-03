@@ -3,7 +3,6 @@
 薬剤マスタ検索・操作を担当
 """
 
-import datetime
 import logging
 import sqlite3
 from contextlib import contextmanager
@@ -158,7 +157,7 @@ class DatabaseManager:
         self, query: str, limit: int = 100, use_fts: bool = True
     ) -> list[dict]:
         """
-        薬品検索
+        薬剤検索
 
         Args:
             query: 検索クエリ
@@ -217,48 +216,14 @@ class DatabaseManager:
             self.logger.info(f"Search '{query}' returned {len(results)} results")
         return results
 
-    def insert_medicine(self, medicine_data: dict) -> int:
-        """
-        薬剤情報を挿入
-
-        Args:
-            medicine_data: 薬剤データ
-
-        Returns:
-            挿入されたレコードのID
-        """
-        with self.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO medicines (
-                    product_name, ingredient_name, specification,
-                    classification, price, manufacturer
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    medicine_data.get("product_name"),
-                    medicine_data.get("ingredient_name"),
-                    medicine_data.get("specification"),
-                    medicine_data.get("classification"),
-                    medicine_data.get("price"),
-                    medicine_data.get("manufacturer", "不明"),
-                ),
-            )
-            conn.commit()
-            return cursor.lastrowid
-
-    def bulk_replace_medicines(
-        self, medicines: list[dict], create_backup: bool = True
-    ) -> int:
+    def bulk_replace_medicines(self, medicines: list[dict]) -> int:
         """
         薬剤マスタ全体の置き換え
-        - 薬価改定時
-        - マスタデータの月次更新
-        - システム移行時のデータ移行
+        - 薬価改定時（年1回）
+        - 新薬収載時（年4-7回）
 
         Args:
             medicines: 新しい薬剤データのリスト
-            create_backup: バックアップを作成の有無
 
         Returns:
             挿入された件数
@@ -269,11 +234,6 @@ class DatabaseManager:
         """
         if not medicines:
             raise ValueError("置き換えるデータがありません。")
-
-        # バックアップ作成
-        backup_count = 0
-        if create_backup:
-            backup_count = self._create_backup()
 
         try:
             with self.get_connection() as conn:
@@ -325,109 +285,12 @@ class DatabaseManager:
 
         except Exception as e:
             self.logger.error(f"薬剤マスタ置換中のエラー発生：{e}")
-            if create_backup and backup_count > 0:
-                self.logger.error(
-                    f"バックアップ({backup_count}件)からの復元を検討してください"
-                )
             raise
 
         # 成功時のログ
-        self.logger.info(f"薬品マスタ全置換完了: {inserted_count}件")
-        if create_backup:
-            self.logger.info(f"バックアップも作成済み: {backup_count}件")
+        self.logger.info(f"薬剤マスタ全置換完了: {inserted_count}件")
 
         return inserted_count
-
-    def bulk_insert_medicines(self, medicines: list[dict]) -> int:
-        """
-        薬剤情報を追加挿入（既存データは削除しない）
-        - 通常の薬剤追加やインポート時に使用
-
-        Args:
-            medicines: 薬剤データのリスト
-
-        Returns:
-            挿入された件数
-        """
-        if not medicines:
-            return 0
-
-        inserted_count = 0
-
-        try:
-            with self.get_connection() as conn:
-                for medicine in medicines:
-                    conn.execute(
-                        """
-                        INSERT INTO medicines (
-                            product_name, ingredient_name, specification,
-                            classification, price, manufacturer
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            medicine.get("product_name"),
-                            medicine.get("ingredient_name"),
-                            medicine.get("specification"),
-                            medicine.get("classification"),
-                            medicine.get("price"),
-                            medicine.get("manufacturer", "不明"),
-                        ),
-                    )
-
-                    inserted_count += 1
-
-                conn.commit()
-        except Exception as e:
-            self.logger.error(f"一括挿入中にエラー発生: {e}")
-            raise
-
-        # 成功時のログ
-        self.logger.info(f"薬剤を追加挿入: {inserted_count}件")
-        return inserted_count
-
-    def _create_backup(self) -> int:
-        """
-        現在の薬剤データのバックアップ作成
-
-        Returns:
-            バックアップしたレコード数
-        """
-        try:
-            with self.get_connection() as conn:
-                # 現在のデータを取得
-                cursor = conn.execute("SELECT * FROM medicines")
-                backup_data = cursor.fetchall()
-
-                if not backup_data:
-                    self.logger.info("バックアップ対象のデータがありません")
-                    return 0
-
-                # バックアップファイル名を生成
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = self.db_path.parent / f"medicines_backup_{timestamp}.db"
-
-                # バックアップDB作成
-                backup_conn = sqlite3.connect(str(backup_path))
-                backup_conn.execute(
-                    """
-                    CREATE TABLE medicines AS
-                    SELECT * FROM medicines
-                """,
-                )
-
-                # 元DBからバックアップDBにデータコピー
-                conn.backup(backup_conn)
-                backup_conn.close()
-
-                backup_count = len(backup_data)
-                self.logger.info(
-                    f"バックアップ作成完了: {backup_path} ({backup_count}件)"
-                )
-                return backup_count
-
-        except Exception as e:
-            self.logger.warning(f"バックアップ作成に失敗: {e}")
-            return 0
 
     def get_statistics(self) -> dict:
         """
@@ -439,7 +302,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             stats = {}
 
-            # 総薬品数
+            # 総薬剤数
             cursor = conn.execute("SELECT COUNT(*) FROM medicines")
             stats["total_medicines"] = cursor.fetchone()[0]
 

@@ -37,7 +37,7 @@ class DatabaseSetup:
                 "specification": "100mg1錠",
                 "classification": "内用薬",
                 "price": 5.90,
-                "manufacturer": "バイエル薬品株式会社",
+                "manufacturer": "バイエル薬剤株式会社",
             },
             {
                 "product_name": "アスピリン錠81mg",
@@ -45,7 +45,7 @@ class DatabaseSetup:
                 "specification": "81mg1錠",
                 "classification": "内用薬",
                 "price": 5.40,
-                "manufacturer": "バイエル薬品株式会社",
+                "manufacturer": "バイエル薬剤株式会社",
             },
             {
                 "product_name": "アスピリン腸溶錠100mg",
@@ -53,7 +53,7 @@ class DatabaseSetup:
                 "specification": "100mg1錠",
                 "classification": "内用薬",
                 "price": 6.10,
-                "manufacturer": "武田薬品工業株式会社",
+                "manufacturer": "武田薬剤工業株式会社",
             },
             {
                 "product_name": "ロキソニン錠60mg",
@@ -69,7 +69,7 @@ class DatabaseSetup:
                 "specification": "60mg1錠",
                 "classification": "内用薬",
                 "price": 9.60,
-                "manufacturer": "東和薬品株式会社",
+                "manufacturer": "東和薬剤株式会社",
             },
             {
                 "product_name": "カロナール錠20mg",
@@ -93,7 +93,7 @@ class DatabaseSetup:
                 "specification": "300mg1錠",
                 "classification": "内用薬",
                 "price": 15.80,
-                "manufacturer": "東亜薬品株式会社",
+                "manufacturer": "東亜薬剤株式会社",
             },
             {
                 "product_name": "ガスター10",

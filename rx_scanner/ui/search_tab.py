@@ -19,7 +19,7 @@ from rx_scanner.database.db_manager import DatabaseManager
 
 
 class SearchTab(QWidget):
-    """薬品検索タブクラス"""
+    """薬剤検索タブクラス"""
 
     def __init__(self):
         super().__init__()
@@ -142,14 +142,14 @@ class SearchTab(QWidget):
         detail_widget = QWidget()
         layout = QVBoxLayout(detail_widget)
 
-        # 薬品詳細グループ
-        detail_group = QGroupBox("薬品詳細情報")
+        # 薬剤詳細グループ
+        detail_group = QGroupBox("薬剤詳細情報")
         detail_layout = QVBoxLayout(detail_group)
 
         # 詳細情報表示
         self.detail_text = QTextEdit()
         self.detail_text.setReadOnly(True)
-        self.detail_text.setPlaceholderText("薬品を選択すると詳細情報が表示されます")
+        self.detail_text.setPlaceholderText("薬剤を選択すると詳細情報が表示されます")
         self.detail_text.setMinimumSize(350, 300)
 
         detail_layout.addWidget(self.detail_text)
@@ -246,7 +246,7 @@ class SearchTab(QWidget):
 
     def simulate_search(self, search_text):
         """検索シミュレーション（DBが使用できない場合のフォールバック）"""
-        # ダミー薬品データ
+        # ダミー薬剤データ
         dummy_medicines = [
             {
                 "product_name": "アスピリン錠100mg",
@@ -254,7 +254,7 @@ class SearchTab(QWidget):
                 "specification": "100mg1錠",
                 "classification": "内用薬",
                 "price": 5.90,
-                "manufacturer": "バイエル薬品",
+                "manufacturer": "バイエル薬剤",
             },
             {
                 "product_name": "アスピリン錠81mg",
@@ -262,7 +262,7 @@ class SearchTab(QWidget):
                 "specification": "81mg1錠",
                 "classification": "内用薬",
                 "price": 5.40,
-                "manufacturer": "バイエル薬品",
+                "manufacturer": "バイエル薬剤",
             },
             {
                 "product_name": "アスピリン腸溶錠100mg",
@@ -270,7 +270,7 @@ class SearchTab(QWidget):
                 "specification": "100mg1錠",
                 "classification": "内用薬",
                 "price": 6.10,
-                "manufacturer": "武田薬品",
+                "manufacturer": "武田薬剤",
             },
             {
                 "product_name": "ロキソプロフェン錠60mg",
@@ -310,7 +310,7 @@ class SearchTab(QWidget):
                 "specification": "300mg1錠",
                 "classification": "内用薬",
                 "price": 15.80,
-                "manufacturer": "東亜薬品",
+                "manufacturer": "東亜薬剤",
             },
         ]
 
@@ -423,7 +423,7 @@ class SearchTab(QWidget):
         </table>
         <h4 style="color: #333; margin-top: 20px;">基本情報</h4>
         <p style="line-height: 1.6; color: #555;">
-        この薬品の詳細な効能・効果、用法・用量、副作用等の情報は、
+        この薬剤の詳細な効能・効果、用法・用量、副作用等の情報は、
         実際の添付文書を確認してください。
         </p>
         <p style="font-size: 12px; color: #888; margin-top: 20px;">
@@ -471,5 +471,5 @@ class SearchTab(QWidget):
 
         except Exception as e:
             QMessageBox.critical(
-                self, "エラー", f"薬品の追加中にエラーが発生しました:\n{str(e)}"
+                self, "エラー", f"薬剤の追加中にエラーが発生しました:\n{str(e)}"
             )

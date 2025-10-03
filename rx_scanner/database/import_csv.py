@@ -120,23 +120,18 @@ class CSVImporter:
             self.logger.error(f"CSVファイル読み込みエラー: {e}")
             raise
 
-    def import_to_database(
-        self,
-        csv_path: str | Path,
-        replace_existing: bool = True,
-        create_backup: bool = True,
-    ) -> int:
+    def import_to_database(self, csv_path: str | Path) -> int:
         """
-        CSVデータをデータベースにインポート
+        CSVデータをデータベースにインポート（全置換）
 
         Args:
             csv_path: CSVファイルのパス
-            replace_existing: 既存データを置き換えるかどうか（Falseの場合は追加）
-            create_backup: バックアップを作成するかどうか
 
         Returns:
             インポートした件数
 
+        Raises:
+            Exception: インポート処理中にエラーが発生した場合
         """
         try:
             # CSVデータを読み込み
@@ -146,13 +141,9 @@ class CSVImporter:
                 self.logger.warning("インポートするデータがありません")
                 return 0
 
-            # データベースにインポート
-            if replace_existing:
-                self.logger.info("既存データを置き換えてインポートを開始")
-                count = self.db_manager.bulk_replace_medicines(medicines, create_backup)
-            else:
-                self.logger.info("既存データに追加してインポートを開始")
-                count = self.db_manager.bulk_insert_medicines(medicines)
+            # データベースに一括置換でインポート
+            self.logger.info("薬剤マスタを全置換でインポートを開始")
+            count = self.db_manager.bulk_replace_medicines(medicines)
 
             self.logger.info(f"インポート完了: {count}件")
             return count
@@ -176,7 +167,7 @@ class CSVImporter:
             stats["search_test_count"] = len(test_results)
 
             self.logger.info(
-                f"検証完了: 総薬品数={stats['total_medicines']}, "
+                f"検証完了: 総薬剤数={stats['total_medicines']}, "
                 f"検索テスト結果={stats['search_test_count']}件"
             )
             return stats
@@ -227,12 +218,6 @@ def main():
     parser.add_argument(
         "--preview", action="store_true", help="データのプレビューのみ実行"
     )
-    parser.add_argument(
-        "--append", action="store_true", help="既存データに追加（デフォルトは置き換え）"
-    )
-    parser.add_argument(
-        "--no-backup", action="store_true", help="バックアップを作成しない"
-    )
     parser.add_argument("--verbose", "-v", action="store_true", help="詳細ログを表示")
 
     args = parser.parse_args()
@@ -264,23 +249,16 @@ def main():
                 print()
 
         else:
-            # インポートモード
-            replace_existing = not args.append
-            create_backup = not args.no_backup
-
+            # インポートモード（全置換のみ）
             logger.info(f"インポートを開始: {args.csv_file}")
-            count = importer.import_to_database(
-                args.csv_file,
-                replace_existing=replace_existing,
-                create_backup=create_backup,
-            )
+            count = importer.import_to_database(args.csv_file)
 
             # インポート後の検証
             stats = importer.validate_import()
 
             print("\n=== インポート結果 ===")
             print(f"インポート件数: {count}件")
-            print(f"総薬品数: {stats.get('total_medicines', 'N/A')}件")
+            print(f"総薬剤数: {stats.get('total_medicines', 'N/A')}件")
             print(f"メーカー数: {stats.get('total_manufacturers', 'N/A')}社")
             print(f"成分数: {stats.get('total_ingredients', 'N/A')}種類")
             print(f"検索テスト: {stats.get('search_test_count', 'N/A')}件ヒット")

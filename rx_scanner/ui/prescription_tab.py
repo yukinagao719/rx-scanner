@@ -69,7 +69,7 @@ class PrescriptionTab(QWidget):
         # 中央: OCR結果・編集エリア
         self.setup_ocr_area(splitter)
 
-        # 右側: 確定薬品リスト・出力エリア
+        # 右側: 確定薬剤リスト・出力エリア
         self.setup_output_area(splitter)
 
         # スプリッターの初期比率設定
@@ -296,7 +296,7 @@ class PrescriptionTab(QWidget):
         if file_path:
             try:
                 with open(file_path, "w", encoding="utf-8") as f:
-                    f.write("薬品名,数量,備考\n")
+                    f.write("薬剤名,数量,備考\n")
                     for i in range(self.medicine_list.count()):
                         item_text = self.medicine_list.item(i).text()
                         f.write(f'"{item_text.replace("✓ ", "")}","",""\n')

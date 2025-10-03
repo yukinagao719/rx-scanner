@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         if index == 0:
             self.status_bar.showMessage("処方箋処理タブ")
         elif index == 1:
-            self.status_bar.showMessage("薬品検索タブ")
+            self.status_bar.showMessage("薬剤検索タブ")
 
     def show_about(self):
         """バージョン情報表示"""
