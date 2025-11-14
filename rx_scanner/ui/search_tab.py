@@ -1,5 +1,13 @@
+"""
+薬剤検索タブ
+
+薬剤マスタDBから薬剤名・成分名で全文検索を行う機能を提供
+リアルタイム検索、検索結果表示、詳細情報表示に対応
+"""
+
+import logging
+
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -16,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from rx_scanner.database.db_manager import DatabaseManager
+from rx_scanner.utils.text_utils import normalize_to_katakana
 
 
 class SearchTab(QWidget):
@@ -23,25 +32,27 @@ class SearchTab(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.search_timer = QTimer()
-        self.search_timer.setSingleShot(True)
-        self.search_timer.timeout.connect(self.perform_search)
+        self.logger = logging.getLogger(__name__)
 
-        # データベース管理クラス初期化
+        self.selected_medicine = None
+
+        # DB接続
         try:
             self.db_manager = DatabaseManager()
-            self.db_connected = True
 
         except Exception as e:
             self.db_manager = None
-            self.db_connected = False
-            print(f"Database initialization failed: {e}")
+            self.logger.error(f"Database initialization failed: {e}")
+
+        # デバウンス検索用タイマー
+        self.search_timer = QTimer()
+        self.search_timer.setSingleShot(True)
+        self.search_timer.timeout.connect(self.on_perform_search)
 
         self.init_ui()
 
     def init_ui(self):
         """UI初期化"""
-        # メインレイアウト
         main_layout = QVBoxLayout(self)
 
         # 検索エリア
@@ -61,15 +72,13 @@ class SearchTab(QWidget):
         splitter.setSizes([500, 400])
 
         # DB接続状態を表示
-        if not self.db_connected:
-            self.search_status.setText(
-                "データベース接続エラー：ダミーデータで動作します"
-            )
+        if not self.db_manager:
+            self.search_status.setText("DB接続エラー：ダミーデータで動作します")
 
-    def setup_search_area(self, parent_layout):
-        """検索エリア設定"""
+    def setup_search_area(self, parent):
+        """検索入力エリアのUI構築"""
         search_group = QGroupBox("薬剤検索")
-        search_layout = QVBoxLayout(search_group)
+        group_layout = QVBoxLayout(search_group)
 
         # 検索入力エリア
         input_layout = QHBoxLayout()
@@ -82,7 +91,6 @@ class SearchTab(QWidget):
         self.search_input.setPlaceholderText(
             "薬剤名を入力してください（例：アスピリン）"
         )
-        self.search_input.setFont(QFont("", 12))
 
         # ボタン
         self.search_button = QPushButton("検索")
@@ -100,25 +108,21 @@ class SearchTab(QWidget):
         input_layout.addWidget(self.search_button)
         input_layout.addWidget(self.clear_button)
 
-        search_layout.addLayout(input_layout)
-        search_layout.addWidget(self.search_status)
+        group_layout.addLayout(input_layout)
+        group_layout.addWidget(self.search_status)
 
-        parent_layout.addWidget(search_group)
+        parent.addWidget(search_group)
 
         # シグナル接続
         self.search_input.textChanged.connect(self.on_search_text_changed)
-        self.search_input.returnPressed.connect(self.perform_search)
-        self.search_button.clicked.connect(self.perform_search)
-        self.clear_button.clicked.connect(self.clear_search)
+        self.search_input.returnPressed.connect(self.on_perform_search)
+        self.search_button.clicked.connect(self.on_perform_search)
+        self.clear_button.clicked.connect(self.on_clear_search)
 
     def setup_results_area(self, parent):
-        """検索結果エリア設定"""
-        results_widget = QWidget()
-        layout = QVBoxLayout(results_widget)
-
-        # グループボックス
-        group = QGroupBox("検索結果")
-        group_layout = QVBoxLayout(group)
+        """検索結果リスト表示エリアのUI構築"""
+        results_group = QGroupBox("検索結果")
+        group_layout = QVBoxLayout(results_group)
 
         # 結果カウント表示
         self.result_count_label = QLabel("0件")
@@ -131,14 +135,13 @@ class SearchTab(QWidget):
         group_layout.addWidget(self.result_count_label)
         group_layout.addWidget(self.results_list)
 
-        layout.addWidget(group)
-        parent.addWidget(results_widget)
+        parent.addWidget(results_group)
 
         # シグナル接続
         self.results_list.itemClicked.connect(self.on_medicine_selected)
 
     def setup_detail_area(self, parent):
-        """詳細表示・操作エリア設定"""
+        """薬剤詳細情報と操作ボタンのUI構築"""
         detail_widget = QWidget()
         layout = QVBoxLayout(detail_widget)
 
@@ -159,15 +162,10 @@ class SearchTab(QWidget):
         action_layout = QVBoxLayout(action_group)
 
         # 追加ボタン
-        self.add_button = QPushButton("処方箋処理タブに追加")
+        self.add_button = QPushButton("処方箋OCRタブに追加")
         self.add_button.setEnabled(False)
 
-        # お気に入り追加ボタン（将来機能）
-        self.favorite_button = QPushButton("お気に入りに追加")
-        self.favorite_button.setEnabled(False)
-
         action_layout.addWidget(self.add_button)
-        action_layout.addWidget(self.favorite_button)
         action_layout.addStretch()
 
         layout.addWidget(detail_group)
@@ -175,58 +173,116 @@ class SearchTab(QWidget):
         parent.addWidget(detail_widget)
 
         # シグナル接続
-        self.add_button.clicked.connect(self.add_to_prescription_tab)
+        self.add_button.clicked.connect(self.on_add_to_prescription_tab)
 
     def on_search_text_changed(self, text):
-        """インクリメンタルサーチ"""
+        """検索テキスト変更イベント（デバウンス処理）"""
         if len(text) >= 2:
-            self.search_timer.start(500)  # 500ms後に検索実行
-
+            # タイマーをリセットして500ms後に検索実行
+            self.search_timer.start(500)
         else:
             self.search_timer.stop()
-            self.clear_results()
+            self._clear_results()
 
-    def perform_search(self):
+    def on_perform_search(self):
         """検索実行"""
         search_text = self.search_input.text().strip()
 
-        if not search_text:
-            self.clear_results()
-            return
-
         if len(search_text) < 2:
-            self.search_status.setText("2文字以上入力してください")
+            self._clear_results()
+            if search_text:
+                self.search_status.setText("2文字以上入力してください")
             return
 
-        # 実際のデータベース検索
+        search_katakana = normalize_to_katakana(search_text)
+
         self.search_status.setText("検索中...")
 
         try:
-            if self.db_connected and self.db_manager:
-                results = self.db_manager.search_medicines(search_text, limit=100)
-                self.display_search_results(results, search_text)
+            if self.db_manager:
+                results = self.db_manager.search_medicines(search_katakana, limit=200)
             else:
-                # データベースが使用できない場合はダミーデータで検索
-                self.simulate_search(search_text)
+                # DBが使用できない場合はダミーデータで検索
+                results = self._simulate_search(search_katakana)
+
+            self._display_search_results(results, search_text)
+
         except Exception as e:
             self.search_status.setText(f"検索エラー：{str(e)}")
             QMessageBox.warning(
                 self, "検索エラー", f"検索中にエラーが発生しました：\n{str(e)}"
             )
 
-    def display_search_results(self, results, search_text):
+    def on_clear_search(self):
+        """検索クリア"""
+        self.search_input.clear()
+        self._clear_results()
+
+    def on_medicine_selected(self, item):
+        """薬剤選択"""
+        medicine_data = item.data(Qt.ItemDataRole.UserRole)
+        if medicine_data:
+            self._show_medicine_detail(medicine_data)
+            self.add_button.setEnabled(True)
+            self.selected_medicine = medicine_data
+
+    def on_add_to_prescription_tab(self):
+        """処方箋処理タブに薬剤追加"""
+        if not self.selected_medicine:
+            return
+        try:
+            # メインウィンドウから処方箋タブを取得
+            prescription_tab = self.window().prescription_tab
+
+            # 薬剤リストに追加
+            medicine_name = self.selected_medicine["medicine_name"]
+            medicine_type = self.selected_medicine["medicine_type"]
+            price = self.selected_medicine["price"]
+
+            display_text = f"✓ {medicine_name} [{medicine_type}]"
+            if price > 0:
+                display_text += f" (¥{price:.2f})"
+
+            prescription_tab.confirmed_list.addItem(display_text)
+
+            # 成功メッセージ
+            QMessageBox.information(
+                self,
+                "追加完了",
+                f"「{self.selected_medicine['medicine_name']}」を処方箋処理タブに追加しました。",
+            )
+            # メインタブに切り替え
+            self.window().tab_widget.setCurrentIndex(0)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "エラー", f"薬剤の追加中にエラーが発生しました:\n{str(e)}"
+            )
+
+    def _clear_results(self):
+        """検索結果クリア"""
+        self.results_list.clear()
+        self.result_count_label.setText("0件")
+        self.search_status.setText("薬剤名を入力して検索してください")
+        self.detail_text.clear()
+        self.add_button.setEnabled(False)
+
+    def _display_search_results(self, results, search_text):
         """検索結果を表示"""
-        # 結果をリストに追加
         self.results_list.clear()
 
-        for med in results:
+        for medicine in results:
             # リストアイテムのテキスト作成
-            price_text = f"¥{med['price']:.2f}" if med.get("price") else "価格未設定"
-            maker_text = med.get("manufacturer", "不明") or "不明"
-            item_text = f"{med['product_name']} | {maker_text} | {price_text}"
+            price_text = (
+                f"¥{medicine['price']:.2f}" if medicine["price"] > 0 else "価格未設定"
+            )
+            manufacturer_text = medicine["manufacturer"]
+            item_text = (
+                f"{medicine['medicine_name']} | {manufacturer_text} | {price_text}"
+            )
 
             item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, med)
+            item.setData(Qt.ItemDataRole.UserRole, medicine)
             self.results_list.addItem(item)
 
         # 検索状態更新
@@ -244,116 +300,11 @@ class SearchTab(QWidget):
         else:
             self.search_status.setText(f"「{search_text}」の検索完了")
 
-    def simulate_search(self, search_text):
-        """検索シミュレーション（DBが使用できない場合のフォールバック）"""
-        # ダミー薬剤データ
-        dummy_medicines = [
-            {
-                "product_name": "アスピリン錠100mg",
-                "ingredient_name": "アスピリン",
-                "specification": "100mg1錠",
-                "classification": "内用薬",
-                "price": 5.90,
-                "manufacturer": "バイエル薬剤",
-            },
-            {
-                "product_name": "アスピリン錠81mg",
-                "ingredient_name": "アスピリン",
-                "specification": "81mg1錠",
-                "classification": "内用薬",
-                "price": 5.40,
-                "manufacturer": "バイエル薬剤",
-            },
-            {
-                "product_name": "アスピリン腸溶錠100mg",
-                "ingredient_name": "アスピリン",
-                "specification": "100mg1錠",
-                "classification": "内用薬",
-                "price": 6.10,
-                "manufacturer": "武田薬剤",
-            },
-            {
-                "product_name": "ロキソプロフェン錠60mg",
-                "ingredient_name": "ロキソプロフェンナトリウム水和物",
-                "specification": "60mg1錠",
-                "classification": "内用薬",
-                "price": 9.60,
-                "manufacturer": "第一三共",
-            },
-            {
-                "product_name": "ロキソニン錠60mg",
-                "ingredient_name": "ロキソプロフェンナトリウム水和物",
-                "specification": "60mg1錠",
-                "classification": "内用薬",
-                "price": 22.10,
-                "manufacturer": "第一三共",
-            },
-            {
-                "product_name": "カロナール錠200mg",
-                "ingredient_name": "アセトアミノフェン",
-                "specification": "200mg1錠",
-                "classification": "内用薬",
-                "price": 5.70,
-                "manufacturer": "あゆみ製薬",
-            },
-            {
-                "product_name": "カロナール錠300mg",
-                "ingredient_name": "アセトアミノフェン",
-                "specification": "300mg1錠",
-                "classification": "内用薬",
-                "price": 6.20,
-                "manufacturer": "あゆみ製薬",
-            },
-            {
-                "product_name": "タイレノールA",
-                "ingredient_name": "アセトアミノフェン",
-                "specification": "300mg1錠",
-                "classification": "内用薬",
-                "price": 15.80,
-                "manufacturer": "東亜薬剤",
-            },
-        ]
-
-        # 検索文字列でフィルタリング（ひらがな→カタカナ変換対応）
-        search_lower = search_text.lower()
-        search_katakana = self.hiragana_to_katakana(search_text)
-        filtered_medicines = [
-            med
-            for med in dummy_medicines
-            if search_lower in med["product_name"].lower()
-            or search_lower in med["ingredient_name"].lower()
-            or search_katakana in med["product_name"]
-            or search_katakana in med["ingredient_name"]
-        ]
-
-        self.display_search_results(filtered_medicines, search_text)
-
-    def clear_search(self):
-        """検索クリア"""
-        self.search_input.clear()
-        self.clear_results()
-
-    def clear_results(self):
-        """検索結果クリア"""
-        self.results_list.clear()
-        self.result_count_label.setText("0件")
-        self.search_status.setText("薬剤名を入力して検索してください")
-        self.detail_text.clear()
-        self.add_button.setEnabled(False)
-
-    def on_medicine_selected(self, item):
-        """薬剤選択時"""
-        medicine_data = item.data(Qt.ItemDataRole.UserRole)
-        if medicine_data:
-            self.show_medicine_detail(medicine_data)
-            self.add_button.setEnabled(True)
-            self.selected_medicine = medicine_data
-
-    def show_medicine_detail(self, medicine_data):
+    def _show_medicine_detail(self, medicine_data):
         """薬剤詳細情報表示"""
         detail_html = f"""
         <h3 style="color: #007ACC;">
-            {medicine_data["product_name"]}
+            {medicine_data["medicine_name"]}
         </h3>
         <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
             <tr style="background-color: #f5f5f5;">
@@ -379,7 +330,7 @@ class SearchTab(QWidget):
                 <td style="padding: 8px;
                 border: 1px solid #ddd;
                 ">
-                {medicine_data.get("specification", "不明")}</td>
+                {medicine_data["specification"]}</td>
             </tr>
             <tr style="background-color: #f5f5f5;">
                 <td style="
@@ -413,6 +364,19 @@ class SearchTab(QWidget):
                 border: 1px solid #ddd;
                 font-weight: bold;
                 ">
+                薬剤分類</td>
+                <td style="
+                padding: 8px;
+                border: 1px solid #ddd;
+                ">
+                {medicine_data["medicine_type"]}</td>
+            </tr>
+            <tr>
+                <td style="
+                padding: 8px;
+                border: 1px solid #ddd;
+                font-weight: bold;
+                ">
                 メーカー</td>
                 <td style="
                 padding: 8px;
@@ -433,43 +397,89 @@ class SearchTab(QWidget):
 
         self.detail_text.setHtml(detail_html)
 
-    def hiragana_to_katakana(self, text):
-        """ひらがなをカタカナに変換"""
-        katakana_text = ""
-        for char in text:
-            # ひらがなの範囲 (U+3041-U+3096)
-            if 0x3041 <= ord(char) <= 0x3096:
-                # カタカナに変換 (U+30A1-U+30F6)
-                katakana_text += chr(ord(char) + 0x60)
-            else:
-                katakana_text += char
-        return katakana_text
+    def _simulate_search(self, search_katakana):
+        """DB接続失敗時のダミーデータ検索"""
+        dummy_medicines = [
+            {
+                "classification": "内用薬",
+                "ingredient_name": "アスピリン",
+                "specification": "100mg1錠",
+                "medicine_name": "アスピリン錠100mg",
+                "manufacturer": "バイエル薬剤",
+                "price": 5.90,
+                "medicine_type": "後発品",
+            },
+            {
+                "classification": "内用薬",
+                "ingredient_name": "アスピリン",
+                "specification": "81mg1錠",
+                "medicine_name": "アスピリン錠81mg",
+                "manufacturer": "バイエル薬剤",
+                "price": 5.40,
+                "medicine_type": "後発品",
+            },
+            {
+                "classification": "内用薬",
+                "ingredient_name": "アスピリン",
+                "specification": "100mg1錠",
+                "medicine_name": "アスピリン腸溶錠100mg",
+                "manufacturer": "武田薬剤",
+                "price": 6.10,
+                "medicine_type": "先発品",
+            },
+            {
+                "classification": "内用薬",
+                "ingredient_name": "ロキソプロフェンナトリウム水和物",
+                "specification": "60mg1錠",
+                "medicine_name": "ロキソプロフェン錠60mg",
+                "manufacturer": "第一三共",
+                "price": 9.60,
+                "medicine_type": "後発品",
+            },
+            {
+                "classification": "内用薬",
+                "ingredient_name": "ロキソプロフェンナトリウム水和物",
+                "specification": "60mg1錠",
+                "medicine_name": "ロキソニン錠60mg",
+                "manufacturer": "第一三共",
+                "price": 22.10,
+                "medicine_type": "先発品",
+            },
+            {
+                "classification": "内用薬",
+                "ingredient_name": "アセトアミノフェン",
+                "specification": "200mg1錠",
+                "medicine_name": "カロナール錠200mg",
+                "manufacturer": "あゆみ製薬",
+                "price": 5.70,
+                "medicine_type": "先発品",
+            },
+            {
+                "classification": "内用薬",
+                "ingredient_name": "アセトアミノフェン",
+                "specification": "300mg1錠",
+                "medicine_name": "カロナール錠300mg",
+                "manufacturer": "あゆみ製薬",
+                "price": 6.20,
+                "medicine_type": "先発品",
+            },
+            {
+                "classification": "内用薬",
+                "ingredient_name": "アセトアミノフェン",
+                "specification": "300mg1錠",
+                "medicine_name": "タイレノールA",
+                "manufacturer": "東亜薬剤",
+                "price": 15.80,
+                "medicine_type": "その他",
+            },
+        ]
 
-    def add_to_prescription_tab(self):
-        """処方箋処理タブに薬剤追加"""
-        if not hasattr(self, "selected_medicine"):
-            return
-        try:
-            # メインウィンドウから処方箋タブを取得
-            prescription_tab = self.window().prescription_tab
+        # 検索文字列でフィルタリング
+        filtered_medicines = [
+            medicine
+            for medicine in dummy_medicines
+            if medicine["medicine_name"].startswith(search_katakana)
+            or medicine["ingredient_name"].startswith(search_katakana)
+        ]
 
-            # 薬剤リストに追加
-            medicine_text = (
-                f"✓ {self.selected_medicine['product_name']} | "
-                f"¥{self.selected_medicine['price']}"
-            )
-            prescription_tab.medicine_list.addItem(medicine_text)
-
-            # 成功メッセージ
-            QMessageBox.information(
-                self,
-                "追加完了",
-                f"「{self.selected_medicine['product_name']}」を処方箋処理タブに追加しました。",
-            )
-            # メインタブに切り替え
-            self.window().tab_widget.setCurrentIndex(0)
-
-        except Exception as e:
-            QMessageBox.critical(
-                self, "エラー", f"薬剤の追加中にエラーが発生しました:\n{str(e)}"
-            )
+        return filtered_medicines

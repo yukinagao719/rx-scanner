@@ -76,11 +76,8 @@ poetry shell
 
 4. **Database Setup**
 ```bash
-# Initialize with sample data (for development)
-python -m rx_scanner.database.setup_db
-
-# Import actual medicine data (for production use)
-python -m rx_scanner.database.import_csv data/product_list.csv
+# Import medicine data
+python -m rx_scanner.database.import_csv data/medicine_list_20251001.csv
 ```
 
 5. **Run Application**
@@ -103,16 +100,13 @@ python -m rx_scanner.main
 
 ```bash
 # Preview data (first 10 records)
-python -m rx_scanner.database.import_csv data/product_list.csv --preview
+python -m rx_scanner.database.import_csv data/medicine_list_20251001.csv --preview
 
-# Replace existing data with import
-python -m rx_scanner.database.import_csv data/product_list.csv
-
-# Add to existing data
-python -m rx_scanner.database.import_csv data/product_list.csv --append
+# Import medicine data (replaces existing data)
+python -m rx_scanner.database.import_csv data/medicine_list_20251001.csv
 
 # Direct SQLite data inspection
-sqlite3 rx_scanner/database/medicine_data.db
+sqlite3 data/medicine_data.db
 ```
 
 ## Development Status
@@ -148,7 +142,6 @@ rx-scanner/
 │   │   └── search_tab.py      # Medicine search tab
 │   ├── database/              # Database related
 │   │   ├── db_manager.py      # SQLite operations & FTS5 search
-│   │   ├── setup_db.py        # Sample data initialization
 │   │   └── import_csv.py      # CSV bulk import
 │   └── utils/                 # Utilities
 │       └── file_utils.py      # File operations
@@ -156,13 +149,13 @@ rx-scanner/
 ├── resources/                 # Resource files
 │   └── sample_images/         # Sample prescription images
 └── data/                      # Data files
-    └── product_list.csv       # Medicine master data (12,720 records)
+    └── medicine_list_20251001.csv  # Medicine master data (12,445 records)
 ```
 
 ## Database Schema
 
 ### Medicine Master Table
-- **product_name**: Product name
+- **medicine_name**: Product name
 - **ingredient_name**: Active ingredient name
 - **specification**: Specification (dosage, form)
 - **classification**: Classification (internal/external medicine)

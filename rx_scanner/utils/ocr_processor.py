@@ -8,102 +8,114 @@ import os
 import platform
 import re
 import shutil
+from collections import defaultdict
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
+from rapidfuzz import fuzz
+
+from rx_scanner.database.db_manager import DatabaseManager
+from rx_scanner.utils.text_utils import normalize_to_katakana
 
 
 class OCRProcessor:
     """OCR処理クラス"""
 
+    # 剤形リスト
+    DOSAGE_FORMS = [
+        "錠",
+        "ＯＤ錠",
+        "OD錠",
+        "カプセル",
+        "細粒",
+        "顆粒",
+        "散",
+        "シロップ",
+        "ドライシロップ",
+        "ＤＳ",
+        "DS",
+        "懸濁",
+        "ゼリー",
+        "チュアブル",
+        "トローチ",
+        "ＯＤフィルム",
+        "ODフィルム",
+        "注",
+        "液",
+        "点眼",
+        "軟膏",
+        "クリーム",
+        "点鼻",
+        "坐剤",
+        "坐薬",
+        "吸入",
+        "吸入用",
+        "貼付",
+        "点耳",
+    ]
+
+    # ストップワード
+    STOP_WORDS = [
+        "キット",
+        "セット",
+        "バッグ",
+    ]
+
     def __init__(self):
-        """初期化"""
         self.logger = logging.getLogger(__name__)
+
+        # DB接続
+        try:
+            self.db_manager = DatabaseManager()
+        except Exception as e:
+            self.db_manager = None
+            self.logger.error(f"Database initialization failed: {e}")
 
         # Tesseractの設定
         self.tesseract_config = {
             "lang": "jpn+eng",
-            # OCR Engine Mode 3（デフォルト（利用可能な最適エンジン））
-            # Page Segmentation Mode 6（統一ブロックのテキスト）
-            "config": "--oem 3 --psm 6",
+            # OCR Engine Mode 1（LSTM）
+            # Page Segmentation Mode 6（uniform text block）
+            "config": "--oem 1 --psm 6",
         }
 
+        # Tesseractのパスの設定
         self._setup_tesseract_path()
 
-    def _setup_tesseract_path(self):
-        """Tesseractのパスをクロスプラットフォームで設定"""
-
-        # 環境変数をチェック
-        tesseract_env = os.environ.get("TESSERACT_CMD")
-        if tesseract_env and Path(tesseract_env).exists():
-            pytesseract.pytesseract.tesseract_cmd = tesseract_env
-            self.logger.info(
-                f"Using TESSERACT_CMD environment variable: {tesseract_env}"
-            )
-            return
-
-        # PATH環境変数で利用可能かチェック
-        if shutil.which("tesseract"):
-            self.logger.info("Tesseract found in PATH")
-            return
-
-        # OS別の候補パスを定義
-        system = platform.system().lower()
-
-        if system == "darwin":  # macOS
-            possible_paths = [
-                "/opt/homebrew/bin/tesseract",  # M1/M2 Mac (Homebrew)
-                "/usr/local/bin/tesseract",  # Intel Mac (Homebrew)
-                "/opt/local/bin/tesseract",  # MacPorts
-            ]
-        elif system == "windows":  # Windows
-            possible_paths = [
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-                rf"C:\Users\{Path.home().name}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe",
-            ]
-        elif system == "linux":  # Linux
-            possible_paths = [
-                "/usr/bin/tesseract",  # APT/YUM
-                "/usr/local/bin/tesseract",  # 手動インストール
-                "/snap/bin/tesseract",  # Snap
-                "/opt/tesseract/bin/tesseract",  # カスタムインストール
-            ]
-        else:
-            # その他のOS
-            possible_paths = ["/usr/bin/tesseract", "/usr/local/bin/tesseract"]
-
-        # 候補パスをチェック
-        for path in possible_paths:
-            if Path(path).exists():
-                pytesseract.pytesseract.tesseract_cmd = path
-                self.logger.info(f"Tesseract path set to: {path}")
-                return
-
-        # 見つからない場合のエラー
-        self._log_installation_instructions()
-
-    def _log_installation_instructions(self):
-        """Tesseractインストール手順をログ出力"""
-        self.logger.error(
-            "Tesseract not found. Please install Tesseract OCR:\n"
-            "macOS: brew install tesseract tesseract-lang\n"
-            "Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki\n"
-            "Linux: sudo apt-get install tesseract-ocr tesseract-ocr-jpn\n"
-        )
-        self.logger.info(
-            "Alternative: Set TESSERACT_CMD environment variable to tesseract executable path"
-        )
-
-    def preprocess_image(self, image_path: str) -> np.ndarray:
+    def process_image(self, image_path: str) -> dict:
         """
-        画像前処理
+        画像を処理してOCR結果を返す
 
         Args:
             image_path: 画像ファイルパス
+
+        Returns:
+            解析済み処方箋データ
+        """
+        # 前処理
+        preprocessed = self._preprocess_image(image_path)
+
+        # テキスト領域抽出
+        text_regions = self._extract_text_regions(preprocessed)
+
+        # 処方箋テキスト解析
+        result = self._parse_prescription_text(text_regions)
+
+        return result
+
+    def _preprocess_image(
+        self, image_path: str, scale: float = 2, denoise: int = 0
+    ) -> np.ndarray:
+        """
+        画像前処理（最適化版）
+
+        Args:
+            image_path: 画像ファイルパス
+            scale: 拡大率
+            denoise: ノイズ除去強度（0 = なし）
 
         Returns:
             前処理済み画像（numpy配列）
@@ -112,34 +124,47 @@ class OCRProcessor:
             # 画像の読み込み
             image = cv2.imread(image_path)
             if image is None:
-                raise ValueError(f"Cannot read image: {image_path}")
+                if not Path(image_path).exists():
+                    raise FileNotFoundError(
+                        f"画像ファイルが見つかりません: {image_path}"
+                    )
+                raise ValueError(f"画像形式が不正です: {image_path}")
 
-            # グレースケール処理
+            # グレースケール変換
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-            # ノイズ除去
-            denoised = cv2.medianBlur(gray, 3)
+            # 上下30%をクロップ（処方箋の中央部分のみを使用）
+            height, width = gray.shape
+            y_start = int(height * 0.30)
+            y_end = int(height * 0.70)
+            gray = gray[y_start:y_end, :]
 
-            # コントラスト調整
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            enhanced = clahe.apply(denoised)
-
-            # 適応的二値化
-            binary = cv2.adaptiveThreshold(
-                enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            # 画像を拡大してOCR精度を向上
+            height, width = gray.shape
+            enlarged = cv2.resize(
+                gray,
+                (int(width * scale), int(height * scale)),
+                interpolation=cv2.INTER_CUBIC,
             )
 
-            # モルフォロジー演算
-            kernel = np.ones((2, 2), np.uint8)
-            cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-            self.logger.info("Image preprocessing completed")
-            return cleaned
+            # ノイズ除去
+            denoised = cv2.fastNlMeansDenoising(enlarged, h=denoise)
+
+            # 大津の二値化（自動閾値）
+            _, binary = cv2.threshold(
+                denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+
+            self.logger.info(
+                f"Image preprocessing completed (scale={scale}, denoise={denoise})"
+            )
+            return binary
 
         except Exception as e:
-            self.logger.error(f"image preprocessing failed: {e}")
+            self.logger.error(f"Image preprocessing failed: {e}")
             raise
 
-    def extract_text_regions(self, image: np.ndarray) -> list[tuple[str, dict]]:
+    def _extract_text_regions(self, image: np.ndarray) -> list[tuple[str, int]]:
         """
         テキスト領域を抽出してOCR処理
 
@@ -147,7 +172,7 @@ class OCRProcessor:
             image: 前処理済み画像
 
         Returns:
-            (認識テキスト, 信頼度情報)のリスト
+            (テキスト, 行番号)のタプルのリスト
         """
         try:
             # PILイメージに変換
@@ -161,7 +186,7 @@ class OCRProcessor:
                 output_type=pytesseract.Output.DICT,
             )
 
-            # テキスト領域を抽出
+            # テキストと行番号を抽出（信頼度でフィルタリング）
             text_regions = []
             n_boxes = len(data["text"])
 
@@ -173,24 +198,8 @@ class OCRProcessor:
                 if conf < 30 or not text:
                     continue
 
-                # 座標情報
-                x, y, w, h = (
-                    data["left"][i],
-                    data["top"][i],
-                    data["width"][i],
-                    data["height"][i],
-                )
-
-                region_info = {
-                    "confidence": conf,
-                    "bbox": (x, y, w, h),
-                    "block_num": data["block_num"][i],
-                    "par_num": data["par_num"][i],
-                    "line_num": data["line_num"][i],
-                    "word_num": data["word_num"][i],
-                }
-
-                text_regions.append((text, region_info))
+                line_num = data["line_num"][i]
+                text_regions.append((text, line_num))
 
             self.logger.info(f"Extracted {len(text_regions)} text regions")
             return text_regions
@@ -199,192 +208,256 @@ class OCRProcessor:
             self.logger.error(f"Text extraction failed: {e}")
             raise
 
-    def parse_prescription_text(self, text_regions: list[tuple[str, dict]]) -> dict:
+    def _parse_prescription_text(self, text_regions: list[tuple[str, int]]) -> dict:
         """
-        処方箋テキストを解析して構造化
+        処方箋テキストを解析して構造化（行単位で処理）
 
         Args:
-            text_regions: OCR結果のテキスト領域リスト
+            text_regions: OCR結果の(テキスト, 行番号)のリスト
 
         Returns:
             解析済み処方箋データ
         """
         try:
-            # 全テキストを結合
-            all_text = " ".join([text for text, _ in text_regions])
+            # UI表示用の全テキスト
+            all_text = "".join([text for text, _ in text_regions])
 
-            # 薬剤情報を抽出
-            medicines = self._extract_medicines(all_text)
+            # 行ごとにグループ化
+            lines = defaultdict(list)
+            for text, line_num in text_regions:
+                lines[line_num].append(text)
 
-            # 患者情報を抽出
-            patient_info = self._extract_patient_info(all_text)
+            # 各行から薬剤を抽出
+            all_medicines = []
+            for line_words in lines.values():
+                line_text = "".join(line_words)
 
-            # 処方日等の情報
-            prescription_info = self._extract_prescription_info(all_text)
+                # テキスト正規化（ひらがな→カタカナ）
+                normalized_line_text = normalize_to_katakana(line_text)
+
+                # この行から薬剤を抽出
+                line_medicines = self._extract_medicines(normalized_line_text)
+
+                all_medicines.extend(line_medicines)
 
             result = {
-                "medicines": medicines,
-                "patient_info": patient_info,
-                "prescription_info": prescription_info,
+                "medicines": all_medicines,
                 "raw_text": all_text,
-                "confidence_summary": self._calculate_confidence_summary(text_regions),
             }
 
-            self.logger.info(f"Parsed prescription: {len(medicines)} medicines found")
+            self.logger.info(
+                f"Parsed prescription: {len(all_medicines)} medicines found "
+                f"from {len(lines)} lines"
+            )
             return result
 
         except Exception as e:
             self.logger.error(f"Prescription parsing failed: {e}")
             raise
 
-    def _extract_medicines(self, text: str) -> list[dict]:
-        """薬剤情報を抽出"""
-        medicines = []
+    def _setup_tesseract_path(self):
+        """
+        Tesseractのパスをクロスプラットフォームで設定
 
-        # 剤形の包括的パターン
-        forms = (
-            "錠|散|液|軟膏|点滴|注射|カプセル|細粒|顆粒|シロップ|ドライシロップ|"
-            "内服液|口腔内崩壊錠|チュアブル|坐薬|坐剤|貼付剤|テープ|パップ|"
-            "ゲル|クリーム|ローション|吸入|点眼|点鼻|点耳|噴霧|注"
-        )
+        検索順序:
+        1. TESSERACT_CMD環境変数（カスタムパス）
+        2. システムPATH
+        3. OS別の標準インストール先（macOS/Windows）
+        """
+        # 環境変数チェック（最優先）
+        tesseract_env = os.environ.get("TESSERACT_CMD")
+        if tesseract_env and Path(tesseract_env).exists():
+            pytesseract.pytesseract.tesseract_cmd = tesseract_env
+            self.logger.info(f"Using TESSERACT_CMD: {tesseract_env}")
+            return
 
-        # 単位の包括的パターン（全角・半角対応）
-        units = (
-            r"(?:[０-９\d]+(?:[．\.][０-９\d]+)?(?:mg|ｍｇ|g|ｇ|ml|ｍｌ|μg|μｇ|"
-            r"％|%|単位|錠|カプセル|包|本|mL|ｍＬ|IU|国際単位)?)?"
-        )
+        # PATHチェック
+        if shutil.which("tesseract"):
+            self.logger.info("Tesseract found in PATH")
+            return
 
-        # 薬剤名のパターン（優先度順）
-        medicine_patterns = [
-            # パターン1: フルネーム（剤形+用量）
-            rf"([ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー]+(?:{forms}){units})",
-            # パターン2: 英数字混在（剤形+用量）
-            rf"([A-Za-z０-９\d][A-Za-zア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー０-９\d]*(?:{forms}){units})",
-            # パターン3: 数字先頭パターン（５－ＦＵ注等）
-            rf"([０-９\d]{{1,2}}[－－-][A-Za-zＡ-Ｚａ-ｚ]{{1,3}}(?:{forms})?{units})",
-            # パターン4: カタカナ+英字混在（ミヤＢＭ錠等）
-            rf"([ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー]{{2,}}[A-Za-zＡ-Ｚａ-ｚ]{{1,3}}(?:{forms})?{units})",
-            # パターン5: 全角英字パターン（ＨＭ散、ＫＭ散等）
-            rf"([Ａ-Ｚａ-ｚ]{{2,3}}(?:{forms}){units})",
-            # パターン6: 短縮名（2-3文字のカタカナ+剤形）
-            rf"([ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー]{{2,3}}(?:{forms}){units})",
-            # パターン7: 成分名+用量（剤形なし）
-            r"([ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー]+[０-９\d]+(?:[．\.][０-９\d]+)?(?:mg|ｍｇ|g|ｇ|ml|ｍｌ|μg|μｇ|％|%|単位|mL|ｍＬ|IU|国際単位))",
-            # パターン8: 商品名のみ（剤形・用量なし、カタカナ主体）
-            r"([ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー]{3,})",
-            # パターン9: 英語名+剤形
-            rf"([A-Z][A-Za-z]{{2,}}(?:{forms})?{units})",
-            # パターン10: ひらがな・漢字混在
-            rf"([あ-んが-ござ-ぞだ-どば-ぼぱ-ぽやゃゆゅよょわゎゐゑをっー一-龯]{{2,}}(?:{forms})?{units})",
-            # パターン11: 2文字カタカナのみ（ウズ、カシ等）
-            r"([ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー]{2})",
-        ]
+        # OS別の候補パスを定義
+        system = platform.system().lower()
 
-        # 用法・用量のパターン（全角・半角対応）
-        dosage_patterns = [
-            r"([０-９\d]+回[０-９\d]+(?:錠|カプセル|包|ｇ|g|ｍｌ|ml))",
-            r"([０-９\d]+日[０-９\d]+回)",
-            r"(毎食[前後])",
-            r"(朝夕食[前後])",
-            r"(朝食[前後])",
-            r"(昼食[前後])",
-            r"(夕食[前後])",
-            r"(食[前後])",
-            r"(就寝前)",
-            r"(起床時)",
-            r"([０-９\d]+日分)",
-            r"([０-９\d]+週間分)",
-            r"(頓服)",
-            r"(適量)",
-            r"(１回[０-９\d]+(?:錠|カプセル|包|ｇ|g|ｍｌ|ml))",
-        ]
-
-        # 方法1: 薬剤名で分割して処理
-        medicines_with_dosage = self._extract_by_medicine_splitting(
-            text, medicine_patterns, dosage_patterns
-        )
-
-        # 方法2: 残った用法用量のみの部分を処理
-        orphan_dosages = self._extract_orphan_dosages(
-            text, medicine_patterns, dosage_patterns
-        )
-
-        # 方法3: データベース検索による補完
-        database_matches = self._match_with_database(text)
-
-        # 結果をマージ
-        medicines.extend(medicines_with_dosage)
-        medicines.extend(database_matches)
-
-        # 薬剤名不明の用法用量も記録（後で手動確認用）
-        for dosage in orphan_dosages:
-            medicines.append(
-                {
-                    "name": "[薬剤名不明]",
-                    "dosage": dosage,
-                    "raw_line": f"[薬剤名不明] {dosage}",
-                }
+        if system == "darwin":  # macOS
+            possible_paths = [
+                "/opt/homebrew/bin/tesseract",  # Apple Silicon Mac (Homebrew)
+                "/usr/local/bin/tesseract",  # Intel Mac (Homebrew)
+                "/opt/local/bin/tesseract",  # MacPorts
+            ]
+        elif system == "windows":  # Windows
+            possible_paths = [
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            ]
+        else:
+            # サポート対象外のOS（Linux）
+            possible_paths = []
+            self.logger.warning(
+                f"OS '{system}' is not officially supported. "
+                "Please set TESSERACT_CMD or add tesseract to PATH"
             )
 
-        return medicines
+        # 候補パスをチェック
+        for path in possible_paths:
+            if Path(path).exists():
+                pytesseract.pytesseract.tesseract_cmd = path
+                self.logger.info(f"Tesseract path set to: {path}")
+                return
+
+        # 見つからない場合
+        self.logger.error("Tesseract not found")
+        self.logger.info(
+            "Please install Tesseract or set TESSERACT_CMD environment variable"
+        )
+
+    def _extract_medicines(self, text: str) -> list[dict]:
+        """
+        薬剤情報を抽出（1行単位で処理）
+
+        Args:
+            text: 1行分の正規化済みOCRテキスト
+
+        Returns:
+            抽出された薬剤情報のリスト
+        """
+        # DB検索
+        database_matches = self._match_with_database(text)
+
+        # 成分ごとに最適な薬剤を選択
+        selected_medicines = self._select_best_medicine_per_ingredient(database_matches)
+
+        # 薬剤データを拡充（代替薬剤情報・表示名を追加）
+        enriched_medicines = self._enrich_medicine_data(selected_medicines)
+
+        self.logger.info(f"Extracted {len(enriched_medicines)} unique medicines")
+        return enriched_medicines
 
     def _match_with_database(self, text: str) -> list[dict]:
         """
-        データベース検索による薬剤名の補完
+        DB検索による薬剤名の補完（1行単位）
 
         Args:
-            text: OCRテキスト
+            text: 1行単位のOCRテキスト
 
         Returns:
-            データベースマッチした薬剤のリスト
+            DBマッチした薬剤のリスト（重複除去前）
         """
         try:
-            from rx_scanner.database.db_manager import DatabaseManager
+            # DB接続チェック
+            if not self.db_manager:
+                self.logger.warning("Database not available, skipping search")
+                return []
 
-            db_manager = DatabaseManager()
-            matches = []
+            # OCRテキストから剤形・規格を抽出
+            dosage_info = self._extract_dosage_forms_and_specs(text)
+            ocr_forms = dosage_info["forms"]
+            ocr_specs = dosage_info["specs"]
 
-            # テキストを単語に分割（スペース、改行、句読点で分割）
+            self.logger.info(f"OCR extracted forms: {ocr_forms}, specs: {ocr_specs}")
+
+            # カタカナ全字と漢字の連続を抽出
             words = re.findall(
-                r"[ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー一-龯A-Za-z0-9０-９]{2,}",
+                r"[ア-ンヴガ-ゴザ-ゾダ-ドバ-ボパ-ポヤャユュヨョワヮヰヱヲッー一-龯]+",
                 text,
             )
+            # 3文字以上のみフィルタ
+            words = [word for word in words if len(word) >= 3]
+
+            matches = []
 
             for word in words:
-                if len(word) >= 3:  # 3文字以上で検索
-                    # データベースで検索
-                    results = db_manager.search_medicines(word, limit=5)
+                # ストップワードはスキップ
+                if word in self.STOP_WORDS:
+                    self.logger.debug(f"Skipping stop word: {word}")
+                    continue
 
-                    for result in results:
-                        # 信頼度計算（完全一致 > 部分一致）
-                        confidence = 0.0
-                        product_name = result.get("product_name", "")
-                        ingredient_name = result.get("ingredient_name", "")
+                # DB検索
+                results = self.db_manager.search_medicines(word, limit=5)
 
-                        if word == product_name:
-                            confidence = 0.95  # 商品名完全一致
-                        elif word == ingredient_name:
-                            confidence = 0.90  # 成分名完全一致
-                        elif word in product_name:
-                            confidence = 0.75  # 商品名部分一致
-                        elif word in ingredient_name:
-                            confidence = 0.70  # 成分名部分一致
-                        else:
-                            confidence = 0.50  # その他のマッチ
+                # 7文字以上の単語の場合、類似度検索を追加（OCRエラー対応）
+                if len(word) >= 7:
+                    similarity_results = self._search_by_similarity(word)
+                    results.extend(similarity_results)
 
-                        if confidence >= 0.70:  # 閾値以上のもののみ採用
-                            matches.append(
-                                {
-                                    "name": product_name,
-                                    "ingredient": ingredient_name,
-                                    "specification": result.get("specification", ""),
-                                    "manufacturer": result.get("manufacturer", ""),
-                                    "price": result.get("price", 0.0),
-                                    "confidence": confidence,
-                                    "matched_word": word,
-                                    "raw_line": f"[DB検索] {word} → {product_name}",
-                                }
+                for result in results:
+                    medicine_name = result["medicine_name"]
+                    ingredient_name = result["ingredient_name"]
+                    specification = result["specification"]
+
+                    # 信頼度スコアリング（0.1刻みの4段階）:
+                    # - 1.00: 商品名完全一致（メーカー名まで特定）
+                    # - 0.90: 剤形+規格一致（規格まで特定）
+                    # - 0.80: 成分名完全一致（成分のみ特定）
+                    # - 0.70: 部分一致・類似度検索
+                    # 閾値: 0.70以上で採用、0.90以上で薬剤名表示
+                    confidence = 0.0
+
+                    if word == medicine_name:
+                        confidence = 1.00  # 商品名完全一致
+                    elif word == ingredient_name:
+                        # 成分名完全一致（剤形・規格一致で0.90に引き上げ）
+                        confidence = 0.80
+                    elif word in medicine_name or word in ingredient_name:
+                        confidence = 0.70  # 部分一致
+                    elif result.get("is_similarity_match"):
+                        confidence = 0.70
+                    else:
+                        continue
+
+                    # 剤形・規格マッチングによる信頼度向上
+                    # （商品名完全一致は既に最高信頼度なのでスキップ）
+                    if confidence < 1.00:
+                        form_match = False
+                        spec_match = False
+
+                        # 剤形マッチング
+                        if ocr_forms and ocr_forms[0] in medicine_name:
+                            form_match = True
+
+                        # 規格マッチング
+                        if ocr_specs:
+                            # 薬剤名を正規化（全角→半角）
+                            medicine_normalized = (
+                                medicine_name.replace("ｍｇ", "mg")
+                                .replace("ｇ", "g")
+                                .replace("ｍＬ", "mL")
+                                .replace("％", "%")
+                                .translate(
+                                    str.maketrans(
+                                        "０１２３４５６７８９．", "0123456789."
+                                    )
+                                )
                             )
+
+                            # 正規表現で完全一致
+                            pattern = r"(?<![0-9.])" + re.escape(ocr_specs[0])
+                            if re.search(pattern, medicine_normalized):
+                                spec_match = True
+
+                        # 剤形・規格の両方がマッチした場合、信頼度を向上
+                        if form_match and spec_match:
+                            # 剤形+規格が一致すれば0.90に引き上げ
+                            confidence = 0.90
+                            self.logger.debug(
+                                f"Form+Spec match: {medicine_name} "
+                                f"(confidence: {confidence})"
+                            )
+
+                    # 閾値以上のもののみ採用
+                    if confidence >= 0.70:
+                        matches.append(
+                            {
+                                "medicine_name": medicine_name,
+                                "ingredient_name": ingredient_name,
+                                "specification": specification,
+                                "manufacturer": result["manufacturer"],
+                                "medicine_type": result["medicine_type"],
+                                "price": result["price"],
+                                "confidence": confidence,
+                                "matched_word": word,
+                            }
+                        )
 
             self.logger.info(f"Database matching found {len(matches)} medicines")
             return matches
@@ -393,249 +466,275 @@ class OCRProcessor:
             self.logger.warning(f"Database matching failed: {e}")
             return []
 
-    def _extract_by_medicine_splitting(
-        self, text: str, medicine_patterns: list, dosage_patterns: list
+    def _extract_dosage_forms_and_specs(self, text: str) -> dict:
+        """
+        OCRテキストから剤形と規格を抽出
+
+        Args:
+            text: OCRテキスト
+
+        Returns:
+            {"forms": [...], "specs": [...]} の辞書
+        """
+        # 剤形を抽出
+        found_forms = []
+        for form in self.DOSAGE_FORMS:
+            if form in text:
+                found_forms.append(form)
+
+        # 最長の剤形のみ採用（"錠"と"OD錠"が両方マッチした場合は"OD錠"を優先）
+        if found_forms:
+            found_forms = [max(found_forms, key=len)]
+
+        # 規格を抽出
+        spec_pattern = (
+            r"([\d０-９]+(?:[．\.][\d０-９]+)?(?:mg|ｍｇ|g|ｇ|mL|ｍＬ|ml|μg|μｇ|％|%))"
+        )
+        found_specs = [
+            spec.replace("ｍｇ", "mg")
+            .replace("ｍＬ", "mL")
+            .replace("ｇ", "g")
+            .replace("％", "%")
+            .translate(str.maketrans("０１２３４５６７８９．", "0123456789."))
+            for spec in re.findall(spec_pattern, text)
+        ]
+
+        # 最初の規格のみ採用（1行に1つの規格が基本）
+        if found_specs:
+            found_specs = [found_specs[0]]
+
+        self.logger.debug(f"Extracted forms: {found_forms}, specs: {found_specs}")
+
+        return {"forms": found_forms, "specs": found_specs}
+
+    def _search_by_similarity(
+        self, keyword: str, min_similarity: float = 0.70
     ) -> list[dict]:
         """
-        薬剤名で分割して用法用量を抽出
+        類似度検索（OCRエラー対応）
 
         Args:
-            text: OCRテキスト
-            medicine_patterns: 薬剤名パターンのリスト
-            dosage_patterns: 用法用量パターンのリスト
+            keyword: 検索キーワード
+            min_similarity: 最小類似度（0.0〜1.0）
 
         Returns:
-            薬剤情報のリスト
+            類似度でフィルタされた検索結果のリスト
         """
+        try:
+            # DB接続チェック
+            if not self.db_manager:
+                return []
 
-        medicines = []
+            # 長い単語のみ対象（7文字以上）
+            if len(keyword) < 7:
+                return []
 
-        # 全ての薬剤名パターンでマッチを試行
-        for pattern in medicine_patterns:
-            matches = re.finditer(pattern, text)
+            # FTS検索で候補取得（前方3文字）
+            prefix = keyword[:3]
+            candidates = self.db_manager.search_medicines(prefix, limit=100)
 
-            for match in matches:
-                medicine_name = match.group(1)
-                start_pos = match.end()
+            # 類似度を計算してフィルタ
+            results = []
+            for candidate in candidates:
+                ingredient_name = candidate["ingredient_name"]
+                medicine_name = candidate["medicine_name"]
 
-                # 薬剤名の後続テキストから用法用量を検索（次の薬剤名まで、最大50文字）
-                following_text = self._get_following_text_until_next_medicine(
-                    text, start_pos, medicine_patterns
+                # キーワードと同じ長さで比較（長さの違いによる類似度低下を防ぐ）
+                keyword_len = len(keyword)
+
+                # 成分名との類似度
+                ingredient_name_short = ingredient_name[:keyword_len]
+                ingredient_similarity = self._calculate_similarity(
+                    keyword, ingredient_name_short
                 )
 
-                dosage = self._find_dosage_in_text(following_text, dosage_patterns)
-
-                medicines.append(
-                    {
-                        "name": medicine_name,
-                        "dosage": dosage if dosage else "[用法用量不明]",
-                        "raw_line": f"{medicine_name} {dosage if dosage else ''}",
-                    }
+                # 薬剤名との類似度
+                medicine_name_short = medicine_name[:keyword_len]
+                medicine_similarity = self._calculate_similarity(
+                    keyword, medicine_name_short
                 )
 
-        return medicines
+                # 高い方を採用
+                similarity = max(ingredient_similarity, medicine_similarity)
 
-    def _get_following_text_until_next_medicine(
-        self, text: str, start_pos: int, medicine_patterns: list, max_chars: int = 50
-    ) -> str:
-        """
-        次の薬剤名までのテキストを取得（最大文字数制限付き）
+                if similarity >= min_similarity:
+                    # 類似度検索でヒットしたことを示すフラグのみ設定
+                    candidate["is_similarity_match"] = True
+                    results.append(candidate)
 
-        Args:
-            text: 全テキスト
-            start_pos: 開始位置
-            medicine_patterns: 薬剤名パターンのリスト
-            max_chars: 最大文字数
-
-        Returns:
-            次の薬剤名までのテキスト
-        """
-        # 最大文字数での切り出し
-        end_pos = min(start_pos + max_chars, len(text))
-        search_text = text[start_pos:end_pos]
-
-        # 次の薬剤名を検索
-        next_medicine_pos = None
-        for pattern in medicine_patterns:
-            match = re.search(pattern, search_text)
-            if match:
-                if next_medicine_pos is None or match.start() < next_medicine_pos:
-                    next_medicine_pos = match.start()
-
-        # 次の薬剤名が見つかった場合はそこまで、なければ全体
-        if next_medicine_pos is not None:
-            return search_text[:next_medicine_pos]
-        else:
-            return search_text
-
-    def _extract_orphan_dosages(
-        self, text: str, medicine_patterns: list, dosage_patterns: list
-    ) -> list[str]:
-        """
-        薬剤名なしの用法用量を抽出
-
-        Args:
-            text: OCRテキスト
-            medicine_patterns: 薬剤名パターンのリスト
-            dosage_patterns: 用法用量パターンのリスト
-
-        Returns:
-            用法用量のリスト
-        """
-        orphan_dosages = []
-
-        # 薬剤名がマッチした部分を除外
-        text_without_medicines = text
-        for pattern in medicine_patterns:
-            text_without_medicines = re.sub(pattern, "", text_without_medicines)
-
-        # 残ったテキストから用法用量を抽出
-        for pattern in dosage_patterns:
-            matches = re.findall(pattern, text_without_medicines)
-            orphan_dosages.extend(matches)
-
-        return orphan_dosages
-
-    def _find_dosage_in_text(self, text: str, dosage_patterns: list) -> str:
-        """
-        テキストから用法用量を検索（複数パターンを結合）
-
-        Args:
-            text: 検索対象テキスト
-            dosage_patterns: 用法用量パターンのリスト
-
-        Returns:
-            見つかった用法用量（複数ある場合はスペース区切りで結合）
-        """
-        found_dosages = []
-
-        for pattern in dosage_patterns:
-            matches = re.findall(pattern, text)
-            found_dosages.extend(matches)
-
-        # 重複を除去して結合
-        unique_dosages = list(dict.fromkeys(found_dosages))
-        return " ".join(unique_dosages) if unique_dosages else ""
-
-    def _extract_patient_info(self, text: str) -> dict:
-        """
-        患者情報を抽出
-
-        Args:
-            text: OCRテキスト
-
-        Returns:
-            患者情報の辞書
-        """
-        patient_info = {}
-
-        # 名前パターン（カタカナ、ひらがな、漢字）
-        name_patterns = [
-            r"([ア-ンヴ]{2,8})\s*様",
-            r"([あ-ん]{2,8})\s*様",
-            r"([一-龯]{2,4})\s*様",
-        ]
-
-        for pattern in name_patterns:
-            match = re.search(pattern, text)
-            if match:
-                patient_info["name"] = match.group(1)
-                break
-
-        # 年齢パターン
-        age_match = re.search(r"([0-9０-９]{1,3})\s*歳", text)
-        if age_match:
-            # 全角数字を半角に変換
-            age_str = age_match.group(1)
-            age_str = age_str.translate(
-                str.maketrans("０１２３４５６７８９", "0123456789")
+            self.logger.debug(
+                f"Similarity search '{keyword}' "
+                f"(min={min_similarity:.2f}) returned {len(results)} results"
             )
-            patient_info["age"] = int(age_str)
 
-        # 生年月日パターン
-        date_patterns = [
-            r"(昭和|平成|令和)\s*([0-9０-９]{1,2})\s*年\s*([0-9０-９]{1,2})\s*月\s*([0-9０-９]{1,2})\s*日",
-            r"([0-9０-９]{4})\s*年\s*([0-9０-９]{1,2})\s*月\s*([0-9０-９]{1,2})\s*日",
-        ]
+            return results
 
-        for pattern in date_patterns:
-            match = re.search(pattern, text)
-            if match:
-                patient_info["birth_date"] = match.group(0)
-                break
+        except Exception as e:
+            self.logger.warning(f"Similarity search failed for '{keyword}': {e}")
+            return []
 
-        return patient_info
-
-    def _extract_prescription_info(self, text: str) -> dict:
+    def _calculate_similarity(self, s1: str, s2: str) -> float:
         """
-        処方箋情報を抽出
+        文字列の類似度を計算（0.0〜1.0）
 
         Args:
-            text: OCRテキスト
+            s1: 文字列1
+            s2: 文字列2
 
         Returns:
-            処方箋情報の辞書
+            類似度（1.0 = 完全一致、0.0 = 全く異なる）
         """
-        prescription_info = {}
+        if not s1 or not s2:
+            return 0.0
 
-        # 処方日パターン
-        date_patterns = [
-            r"([0-9０-９]{4})\s*年\s*([0-9０-９]{1,2})\s*月\s*([0-9０-９]{1,2})\s*日",
-            r"(令和|平成)\s*([0-9０-９]{1,2})\s*年\s*([0-9０-９]{1,2})\s*月\s*([0-9０-９]{1,2})\s*日",
-        ]
+        # rapidfuzzのレーベンシュタイン距離ベースの類似度を使用
+        # fuzz.ratio()は0-100の範囲を返すので、100で割って0.0-1.0に変換
+        return fuzz.ratio(s1, s2) / 100.0
 
-        for pattern in date_patterns:
-            match = re.search(pattern, text)
-            if match:
-                prescription_info["date"] = match.group(0)
-                break
-
-        # 医師名パターン
-        doctor_patterns = [
-            r"医師\s*([一-龯ア-ンヴ]{2,8})",
-            r"Dr\.\s*([A-Za-z\s]{3,20})",
-        ]
-
-        for pattern in doctor_patterns:
-            match = re.search(pattern, text)
-            if match:
-                prescription_info["doctor"] = match.group(1)
-                break
-
-        # 医療機関パターン
-        facility_patterns = [
-            r"([一-龯]{3,20}(?:病院|医院|クリニック|診療所))",
-            r"([一-龯]{3,20}(?:内科|外科|整形外科|皮膚科|眼科|耳鼻科))",
-        ]
-
-        for pattern in facility_patterns:
-            match = re.search(pattern, text)
-            if match:
-                prescription_info["facility"] = match.group(1)
-                break
-
-        return prescription_info
-
-    def _calculate_confidence_summary(
-        self, text_regions: list[tuple[str, dict]]
-    ) -> dict:
+    def _select_best_medicine_per_ingredient(self, medicines: list[dict]) -> list[dict]:
         """
-        信頼度の統計情報を計算
+        成分ごとに最適な薬剤を1つ選択（2段階）
+
+        第1段階: (成分名, 規格) で重複除去 → 信頼度が高い方を優先
+        第2段階: 成分ごとに1つ選択 → 信頼度が高い方、同じなら規格値が低い方を優先
 
         Args:
-            text_regions: OCR結果のテキスト領域リスト
+            medicines: 薬剤情報のリスト
 
         Returns:
-            信頼度統計の辞書
+            成分ごとに最適な薬剤のリスト
         """
-        if not text_regions:
-            return {"average": 0.0, "min": 0.0, "max": 0.0, "count": 0}
+        if not medicines:
+            return []
 
-        confidences = [region[1]["confidence"] for region in text_regions]
+        # 第1段階: (成分名, 規格) で重複除去
+        by_ingredient_and_spec = {}
+        for medicine in medicines:
+            ingredient = medicine["ingredient_name"]
+            specification = medicine["specification"]
 
-        return {
-            "average": sum(confidences) / len(confidences),
-            "min": min(confidences),
-            "max": max(confidences),
-            "count": len(confidences),
-        }
+            key = (ingredient, specification)
+            if key not in by_ingredient_and_spec:
+                by_ingredient_and_spec[key] = medicine
+            else:
+                # 信頼度が高い方を残す
+                existing = by_ingredient_and_spec[key]
+                if medicine["confidence"] > existing["confidence"]:
+                    by_ingredient_and_spec[key] = medicine
+
+        # 第2段階: 成分名のみで重複除去（規格違いを除外）
+        by_ingredient = {}
+        for medicine in by_ingredient_and_spec.values():
+            ingredient = medicine["ingredient_name"]
+            if ingredient not in by_ingredient:
+                by_ingredient[ingredient] = medicine
+            else:
+                existing = by_ingredient[ingredient]
+                new_confidence = medicine.get("confidence", 0.0)
+                existing_confidence = existing.get("confidence", 0.0)
+
+                # 信頼度が高い方を優先
+                should_replace = False
+                if new_confidence > existing_confidence:
+                    should_replace = True
+                elif new_confidence == existing_confidence:
+                    # 信頼度が同じ場合、規格値が低い方を優先
+                    new_spec_value = self._extract_spec_value(medicine["specification"])
+                    existing_spec_value = self._extract_spec_value(
+                        existing["specification"]
+                    )
+                    should_replace = new_spec_value < existing_spec_value
+
+                if should_replace:
+                    by_ingredient[ingredient] = medicine
+
+        return list(by_ingredient.values())
+
+    def _extract_spec_value(self, specification: str) -> float:
+        """
+        規格から数値を抽出（例: "５ｍｇ１錠" → 5.0）
+
+        Args:
+            specification: 規格文字列
+
+        Returns:
+            抽出された数値（数値がない場合はfloat("inf")）
+        """
+        # 全角を半角に変換
+        spec_normalized = specification.translate(
+            str.maketrans("０１２３４５６７８９．", "0123456789.")
+        )
+
+        # 最初の数値を抽出
+        match = re.search(r"(\d+(?:\.\d+)?)", spec_normalized)
+        return float(match.group(1)) if match else float("inf")
+
+    def _enrich_medicine_data(self, medicines: list[dict]) -> list[dict]:
+        """
+        薬剤データを拡充（代替薬剤情報・表示名を追加）
+
+        代替薬剤情報を取得し、信頼度に基づいて表示名を設定する。
+        - 信頼度 >= 0.90: 薬剤名を表示
+        - 信頼度 < 0.90 かつ 代替薬あり: 成分名を表示
+        - 信頼度 < 0.90 かつ 代替薬なし: 薬剤名を表示
+
+        Args:
+            medicines: 薬剤情報のリスト
+
+        Returns:
+            拡充された薬剤リスト
+        """
+        try:
+            # DB接続チェック
+            if not self.db_manager:
+                self.logger.warning(
+                    "Database not available, skipping alternative medicines"
+                )
+
+            result = []
+
+            for medicine in medicines:
+                medicine_name = medicine["medicine_name"]
+                ingredient_name = medicine["ingredient_name"]
+
+                # 代替薬剤情報を取得
+                if self.db_manager:
+                    alternatives = self.db_manager.get_medicine_alternatives(
+                        ingredient_name, exclude_medicine_name=medicine_name
+                    )
+                else:
+                    alternatives = []
+
+                # 代替薬剤があるかチェック
+                has_alternatives = len(alternatives) > 0
+
+                # 薬剤データに代替薬剤情報を追加
+                medicine_with_alt = medicine.copy()
+                medicine_with_alt["has_alternatives"] = has_alternatives
+                medicine_with_alt["alternative_medicines"] = alternatives
+
+                # display_name設定ロジック
+                confidence = medicine.get("confidence", 0.0)
+
+                # 信頼度が高い場合（成分名完全一致以上 or 剤形+規格一致）は薬剤名表示
+                if confidence >= 0.90:
+                    medicine_with_alt["display_name"] = medicine_name
+                else:
+                    # 信頼度が低い場合
+                    if not has_alternatives:
+                        # 代替薬がない場合は薬剤名を表示
+                        medicine_with_alt["display_name"] = medicine_name
+                    else:
+                        # 代替薬がある場合は成分名を表示
+                        medicine_with_alt["display_name"] = ingredient_name
+
+                result.append(medicine_with_alt)
+
+            self.logger.info(
+                f"Enriched {len(result)} medicines with alternatives and display names"
+            )
+            return result
+
+        except Exception as e:
+            self.logger.warning(f"Failed to enrich medicine data: {e}")
+            return medicines
