@@ -1,11 +1,13 @@
 """
-CSV薬剤データをデータベースにインポートするスクリプト
-product_list.csvを読み込み、薬剤マスタデータベースに登録する
+CSV薬剤データをDBにインポートするスクリプト
+medicine_list_XXXXXXXX.csvを読み込み、薬剤マスタDBに登録する
 """
 
+import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -17,35 +19,12 @@ class CSVImporter:
 
     def __init__(self, db_manager: DatabaseManager | None = None):
         """
-        初期化
-
         Args:
-            db_manager: DatabaseManagerインスタンス（Noneの場合は新規作成）
+            db_manager: DatabaseManagerインスタンス（テスト用、通常はNone）
         """
         self.db_manager = db_manager or DatabaseManager()
+
         self.logger = logging.getLogger(__name__)
-
-    def _parse_price(self, price_str) -> float:
-        """
-        価格文字列をfloatに変換
-        カンマ区切りや空白を除去して変換
-
-        Args:
-            price_str: 価格文字列
-
-        Returns:
-            float値の価格
-        """
-        if pd.isna(price_str) or price_str == "":
-            return 0.0
-
-        try:
-            # 文字列に変換してカンマと空白を除去
-            clean_price = str(price_str).strip().replace(",", "").replace(" ", "")
-            return float(clean_price)
-        except (ValueError, TypeError):
-            self.logger.warning(f"価格変換エラー: {price_str} -> 0.0")
-            return 0.0
 
     def read_csv_data(self, csv_path: str | Path) -> list[dict]:
         """
@@ -68,16 +47,17 @@ class CSVImporter:
         try:
             # CSVファイルを読み込み
             df = pd.read_csv(csv_path)
-            self.logger.info(f"CSVファイルを読み込み: {len(df)}行")
+            self.logger.info(f"CSV file loaded: {len(df)} rows")
 
             # 必要な列が存在するかチェック
             required_columns = [
                 "classification",
                 "ingredient_name",
                 "specification",
-                "product_name",
+                "medicine_name",
                 "manufacturer",
                 "price",
+                "medicine_type",
             ]
 
             missing_columns = [col for col in required_columns if col not in df.columns]
@@ -88,8 +68,11 @@ class CSVImporter:
             medicines = []
             for _, row in df.iterrows():
                 # 空行をスキップ
-                if pd.isna(row["product_name"]) or not str(row["product_name"]).strip():
-                    self.logger.warning(f"商品名が空のためスキップ: {row}")
+                if (
+                    pd.isna(row["medicine_name"])
+                    or not str(row["medicine_name"]).strip()
+                ):
+                    self.logger.warning(f"Skipping row with empty medicine name: {row}")
                     continue
 
                 medicine = {
@@ -102,88 +85,53 @@ class CSVImporter:
                     "specification": str(row["specification"]).strip()
                     if pd.notna(row["specification"])
                     else "",
-                    "product_name": str(row["product_name"]).strip(),
+                    "medicine_name": str(row["medicine_name"]).strip(),
                     "manufacturer": str(row["manufacturer"]).strip()
                     if pd.notna(row["manufacturer"])
                     else "不明",
-                    "price": self._parse_price(row["price"])
-                    if pd.notna(row["price"]) and row["price"] != ""
-                    else 0.0,
+                    "price": self._parse_price(row["price"]),
+                    "medicine_type": str(row["medicine_type"]).strip()
+                    if pd.notna(row["medicine_type"])
+                    else "その他",
                 }
 
                 medicines.append(medicine)
 
-            self.logger.info(f"有効な薬剤データ: {len(medicines)}件")
+            self.logger.info(f"Valid medicine data: {len(medicines)} records")
             return medicines
 
         except Exception as e:
-            self.logger.error(f"CSVファイル読み込みエラー: {e}")
+            self.logger.error(f"CSV file read error: {e}")
             raise
 
-    def import_to_database(
-        self,
-        csv_path: str | Path,
-        replace_existing: bool = True,
-        create_backup: bool = True,
-    ) -> int:
+    def import_to_database(self, csv_path: str | Path) -> int:
         """
-        CSVデータをデータベースにインポート
+        CSVデータをDBにインポート
 
         Args:
             csv_path: CSVファイルのパス
-            replace_existing: 既存データを置き換えるかどうか（Falseの場合は追加）
-            create_backup: バックアップを作成するかどうか
 
         Returns:
-            インポートした件数
-
+            インポート件数
         """
         try:
             # CSVデータを読み込み
             medicines = self.read_csv_data(csv_path)
 
             if not medicines:
-                self.logger.warning("インポートするデータがありません")
+                self.logger.warning("No data to import")
                 return 0
 
-            # データベースにインポート
-            if replace_existing:
-                self.logger.info("既存データを置き換えてインポートを開始")
-                count = self.db_manager.bulk_replace_medicines(medicines, create_backup)
-            else:
-                self.logger.info("既存データに追加してインポートを開始")
-                count = self.db_manager.bulk_insert_medicines(medicines)
+            # DBに全薬剤を置き換えてインポート
+            self.logger.info("Starting full medicine replacement import")
+            count = self.db_manager.replace_all_medicines(medicines)
 
-            self.logger.info(f"インポート完了: {count}件")
+            self.logger.info(f"Import completed: {count} records")
             return count
 
         except Exception as e:
-            self.logger.error(f"インポート処理エラー: {e}")
+            self.logger.error(f"Import process error: {e}")
             raise
-
-    def validate_import(self) -> dict:
-        """
-        インポート後のデータ検証
-
-        Returns:
-            検証結果の統計情報
-        """
-        try:
-            stats = self.db_manager.get_statistics()
-
-            # 簡単な検索テストも実行
-            test_results = self.db_manager.search_medicines("アスピリン", limit=5)
-            stats["search_test_count"] = len(test_results)
-
-            self.logger.info(
-                f"検証完了: 総薬品数={stats['total_medicines']}, "
-                f"検索テスト結果={stats['search_test_count']}件"
-            )
-            return stats
-
-        except Exception as e:
-            self.logger.error(f"検証エラー: {e}")
-            return {}
 
     def preview_csv_data(self, csv_path: str | Path, limit: int = 10) -> list[dict]:
         """
@@ -191,7 +139,7 @@ class CSVImporter:
 
         Args:
             csv_path: CSVファイルのパス
-            limit: 表示する件数
+            limit: 表示件数
 
         Returns:
             プレビューデータのリスト
@@ -201,39 +149,52 @@ class CSVImporter:
             preview_data = medicines[:limit]
 
             self.logger.info(
-                f"プレビュー表示: {len(preview_data)}件 (全{len(medicines)}件中)"
+                f"Preview displayed: {len(preview_data)} records "
+                f"(of {len(medicines)} total)"
             )
             return preview_data
 
         except Exception as e:
-            self.logger.error(f"プレビューエラー: {e}")
+            self.logger.error(f"Preview error: {e}")
             return []
+
+    def _parse_price(self, price_data: Any) -> float:
+        """
+        価格文字列をfloatに変換（カンマ区切りや空白を除去）
+        - エクセルの書式設定に由来する不整合データ
+
+        Args:
+            price_data: 価格データ（str, float, int, Noneなど）
+
+        Returns:
+            float値の価格
+        """
+        if pd.isna(price_data) or str(price_data).strip() == "":
+            return 0.0
+
+        try:
+            # 文字列に変換してカンマと空白を除去
+            clean_price = str(price_data).strip().replace(",", "").replace(" ", "")
+            return float(clean_price)
+
+        except (ValueError, TypeError):
+            self.logger.warning(f"Price conversion error: {price_data} -> 0.0")
+            return 0.0
 
 
 def main():
-    """メイン関数"""
-    import argparse
-
     # コマンドライン引数の設定
-    parser = argparse.ArgumentParser(
-        description="CSV薬剤データをデータベースにインポート"
-    )
+    parser = argparse.ArgumentParser(description="CSV薬剤データをDBにインポート")
     parser.add_argument(
         "csv_file",
-        help="インポートするCSVファイルのパス",
-        default="product_list.csv",
+        help="インポートするCSVファイルパス",
+        default="data/medicine_list_20251001.csv",
         nargs="?",
     )
     parser.add_argument(
-        "--preview", action="store_true", help="データのプレビューのみ実行"
+        "-p", "--preview", action="store_true", help="データのプレビューのみ実行"
     )
-    parser.add_argument(
-        "--append", action="store_true", help="既存データに追加（デフォルトは置き換え）"
-    )
-    parser.add_argument(
-        "--no-backup", action="store_true", help="バックアップを作成しない"
-    )
-    parser.add_argument("--verbose", "-v", action="store_true", help="詳細ログを表示")
+    parser.add_argument("-v", "--verbose", action="store_true", help="詳細ログ表示")
 
     args = parser.parse_args()
 
@@ -243,52 +204,61 @@ def main():
         level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    logger = logging.getLogger(__name__)
-
     try:
         importer = CSVImporter()
 
         if args.preview:
             # プレビューモード
-            logger.info("プレビューモードで実行")
+            importer.logger.info("Running in preview mode")
             preview_data = importer.preview_csv_data(args.csv_file, limit=10)
 
             print("\n=== データプレビュー ===")
             for i, medicine in enumerate(preview_data, 1):
-                print(f"{i:2d}. {medicine['product_name']}")
+                print(f"{i:2d}. {medicine['medicine_name']}")
                 print(f"     成分: {medicine['ingredient_name']}")
                 print(f"     規格: {medicine['specification']}")
                 print(f"     区分: {medicine['classification']}")
                 print(f"     価格: ¥{medicine['price']}")
                 print(f"     メーカー: {medicine['manufacturer']}")
+                print(f"     薬剤分類: {medicine['medicine_type']}")
                 print()
 
         else:
             # インポートモード
-            replace_existing = not args.append
-            create_backup = not args.no_backup
+            importer.logger.info(f"Starting import: {args.csv_file}")
+            count = importer.import_to_database(args.csv_file)
 
-            logger.info(f"インポートを開始: {args.csv_file}")
-            count = importer.import_to_database(
-                args.csv_file,
-                replace_existing=replace_existing,
-                create_backup=create_backup,
-            )
-
-            # インポート後の検証
-            stats = importer.validate_import()
+            # インポート後の統計情報取得
+            stats = importer.db_manager.get_statistics()
 
             print("\n=== インポート結果 ===")
             print(f"インポート件数: {count}件")
-            print(f"総薬品数: {stats.get('total_medicines', 'N/A')}件")
-            print(f"メーカー数: {stats.get('total_manufacturers', 'N/A')}社")
+            print(f"総薬剤数: {stats.get('total_medicines', 'N/A')}件")
             print(f"成分数: {stats.get('total_ingredients', 'N/A')}種類")
-            print(f"検索テスト: {stats.get('search_test_count', 'N/A')}件ヒット")
 
-        print("処理が完了しました。")
+            # 区分別内訳
+            classification_breakdown = stats.get("classification_breakdown", {})
+            if classification_breakdown:
+                print("\n区分別内訳:")
+                for classification, count in classification_breakdown.items():
+                    print(f"  {classification}: {count:,}件")
+
+            # 薬剤タイプ別内訳
+            medicine_type_breakdown = stats.get("medicine_type_breakdown", {})
+            if medicine_type_breakdown:
+                print("\n薬剤タイプ別内訳:")
+                for med_type, count in medicine_type_breakdown.items():
+                    print(f"  {med_type}: {count:,}件")
+
+            # DBサイズをMB表示
+            db_size_bytes = stats.get("db_size", 0)
+            db_size_mb = db_size_bytes / (1024 * 1024)
+            print(f"\nDBサイズ: {db_size_mb:.2f} MB")
+
+        print("\n処理が完了しました。")
 
     except Exception as e:
-        logger.error(f"処理中にエラーが発生: {e}")
+        logging.getLogger(__name__).error(f"Error occurred during processing: {e}")
         sys.exit(1)
 
 

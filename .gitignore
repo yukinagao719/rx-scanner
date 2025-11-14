@@ -54,7 +54,7 @@ Thumbs.db
 
 # Application specific
 /data/medicine_master.csv
-/rx_scanner/database/medicine_data.db
+/data/medicine_data.db
 /resources/sample_images/*.jpg
 /resources/sample_images/*.png
 /resources/sample_images/*.jpeg
