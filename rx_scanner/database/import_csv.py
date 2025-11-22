@@ -100,7 +100,7 @@ class CSVImporter:
 
         try:
             # CSVファイルを読み込み
-            df = pd.read_csv(csv_path)
+            df = pd.read_csv(csv_path, encoding="utf-8")
             self.logger.info(f"CSV file loaded: {len(df)} rows")
 
             # 必要な列が存在するかチェック
@@ -183,6 +183,17 @@ class CSVImporter:
 
 
 def main() -> None:
+    # UTF-8エンコーディングを強制設定（Windows対応）
+    if sys.platform == "win32":
+        import io
+
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
+        sys.stderr = io.TextIOWrapper(
+            sys.stderr.buffer, encoding="utf-8", errors="replace"
+        )
+
     # コマンドライン引数の設定
     parser = argparse.ArgumentParser(description="CSV薬剤データをDBにインポート")
     parser.add_argument(
