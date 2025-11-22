@@ -10,12 +10,12 @@ Prescription OCR and Receipt Data Generation Application
 
 ## Overview
 
-A desktop application designed to streamline prescription processing in medical settings. Uses image processing and OCR technology to automatically generate receipt data from prescription images. Currently features a complete medicine search and database system, with OCR functionality ready for implementation.
+A desktop application designed to streamline prescription processing in medical settings. Uses advanced image processing and OCR technology to automatically generate receipt data from prescription images. Features a complete medicine search and database system with fully operational OCR processing and automatic medicine matching.
 
 ## Key Features
 
 ### ✅ Medicine Search Tab (Implemented)
-- **High-Speed Full-Text Search**: Fast search across 12,720 medicine records
+- **High-Speed Full-Text Search**: Fast search across 12,445 medicine records
 - **Japanese Language Support**: Search in Hiragana, Katakana, and Kanji
 - **Incremental Search**: Real-time search results update
 - **Detailed Information Display**: Product name, ingredient, specification, price, manufacturer
@@ -23,23 +23,26 @@ A desktop application designed to streamline prescription processing in medical 
 
 ### ✅ Database System (Implemented)
 - **SQLite + FTS5**: High-performance full-text search database
-- **12,720 Medicine Master Records**: Real pharmaceutical database
+- **12,445 Medicine Master Records**: Real pharmaceutical database
 - **CSV Bulk Import**: Easy external data integration
-- **Backup Functionality**: Data safety and integrity
+- **Alternative Medicine Lookup**: Generic substitution support
 
-### 🚧 Prescription Processing Tab (In Development)
-- Prescription image loading and display
-- OCR processing for text recognition
-- Automatic medicine database matching
-- CSV format receipt data export
+### ✅ Prescription Processing Tab (Implemented)
+- **Image Loading & Display**: Drag-and-drop support with preview
+- **OCR Processing**: Multi-threaded Tesseract integration with Japanese language support
+- **Automatic Medicine Matching**: 4-tier confidence scoring system (0.70-1.00)
+- **Advanced Pattern Recognition**: 29 dosage forms, specification extraction, fuzzy matching
+- **Alternative Medicine Selection**: Interactive dialog with price comparison
+- **CSV Receipt Export**: Structured format with medicine details, dosage, and pricing
 
 ## Tech Stack
 
 - **GUI**: PySide6 (Qt6 Python bindings)
 - **Database**: SQLite + FTS5 full-text search
 - **Data Processing**: pandas, numpy
-- **Image Processing**: OpenCV (ready)
-- **OCR**: Tesseract OCR (ready)
+- **Image Processing**: OpenCV (preprocessing, noise reduction, binarization)
+- **OCR**: Tesseract OCR (Japanese + English, LSTM engine)
+- **Text Matching**: rapidfuzz (fuzzy string matching for OCR error correction)
 - **Development**: Python 3.12 + Poetry
 - **Code Quality**: ruff, mypy, pytest
 
@@ -137,19 +140,21 @@ sqlite3 data/medicine_data.db
 ### ✅ Completed Features
 - [x] Tab-based UI design
 - [x] Medicine search functionality (FTS5 full-text search)
-- [x] Medicine master database (12,720 records)
+- [x] Medicine master database (12,445 records)
 - [x] CSV bulk import functionality
-- [x] Database backup functionality
 - [x] Japanese language search support
 - [x] Inter-tab integration
+- [x] OCR processing (Tesseract integration with image preprocessing)
+- [x] Medicine matching logic (4-tier confidence scoring)
+- [x] Prescription image processing (drag-and-drop, preview)
+- [x] Receipt CSV export
+- [x] Alternative medicine selection dialog
+- [x] Fuzzy matching for OCR error correction
 
 ### 🚧 Planned Features
-- [ ] OCR processing (Tesseract integration)
-- [ ] Medicine matching logic
-- [ ] Prescription image processing
-- [ ] Receipt CSV export
 - [ ] Enhanced error handling
 - [ ] Performance optimization
+- [ ] User preferences and settings
 
 ## Project Structure
 
@@ -162,13 +167,18 @@ rx-scanner/
 │   ├── ui/                    # User interface
 │   │   ├── main_window.py     # Main window
 │   │   ├── prescription_tab.py # Prescription processing tab
-│   │   └── search_tab.py      # Medicine search tab
+│   │   ├── search_tab.py      # Medicine search tab
+│   │   └── medicine_selection_dialog.py # Alternative medicine selection
 │   ├── database/              # Database related
 │   │   ├── db_manager.py      # SQLite operations & FTS5 search
 │   │   └── import_csv.py      # CSV bulk import
 │   └── utils/                 # Utilities
-│       └── file_utils.py      # File operations
+│       ├── file_utils.py      # File operations
+│       ├── ocr_processor.py   # OCR processing & medicine matching
+│       └── text_utils.py      # Text normalization (Hiragana/Katakana)
 ├── tests/                     # Test files
+│   ├── test_database/         # Database tests
+│   └── test_utils/            # Utility tests
 ├── resources/                 # Resource files
 │   └── sample_images/         # Sample prescription images
 └── data/                      # Data files
@@ -187,7 +197,7 @@ rx-scanner/
 
 ### Search Features
 - **FTS5 full-text search engine**
-- **Japanese morphological analysis** support
+- **Japanese morphological analysis support** 
 - **Partial matching & fuzzy search**
 
 ## CI/CD Pipeline
