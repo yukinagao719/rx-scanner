@@ -32,9 +32,6 @@ dev = [
     "pandas-stubs>=2.1.0",
 ]
 
-[tool.poetry]
-package-mode = false
-
 [tool.ruff]
 line-length = 88
 target-version = "py312"
