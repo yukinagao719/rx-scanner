@@ -6,12 +6,14 @@
 """
 
 import logging
+from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -30,7 +32,9 @@ from rx_scanner.utils.text_utils import normalize_to_katakana
 class SearchTab(QWidget):
     """薬剤検索タブクラス"""
 
-    def __init__(self):
+    db_manager: DatabaseManager | None
+
+    def __init__(self) -> None:
         super().__init__()
         self.logger = logging.getLogger(__name__)
 
@@ -51,7 +55,7 @@ class SearchTab(QWidget):
 
         self.init_ui()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """UI初期化"""
         main_layout = QVBoxLayout(self)
 
@@ -75,7 +79,7 @@ class SearchTab(QWidget):
         if not self.db_manager:
             self.search_status.setText("DB接続エラー：ダミーデータで動作します")
 
-    def setup_search_area(self, parent):
+    def setup_search_area(self, parent: QLayout) -> None:
         """検索入力エリアのUI構築"""
         search_group = QGroupBox("薬剤検索")
         group_layout = QVBoxLayout(search_group)
@@ -119,7 +123,7 @@ class SearchTab(QWidget):
         self.search_button.clicked.connect(self.on_perform_search)
         self.clear_button.clicked.connect(self.on_clear_search)
 
-    def setup_results_area(self, parent):
+    def setup_results_area(self, parent: QVBoxLayout | QSplitter) -> None:
         """検索結果リスト表示エリアのUI構築"""
         results_group = QGroupBox("検索結果")
         group_layout = QVBoxLayout(results_group)
@@ -140,7 +144,7 @@ class SearchTab(QWidget):
         # シグナル接続
         self.results_list.itemClicked.connect(self.on_medicine_selected)
 
-    def setup_detail_area(self, parent):
+    def setup_detail_area(self, parent: QVBoxLayout | QSplitter) -> None:
         """薬剤詳細情報と操作ボタンのUI構築"""
         detail_widget = QWidget()
         layout = QVBoxLayout(detail_widget)
@@ -175,7 +179,7 @@ class SearchTab(QWidget):
         # シグナル接続
         self.add_button.clicked.connect(self.on_add_to_prescription_tab)
 
-    def on_search_text_changed(self, text):
+    def on_search_text_changed(self, text: str) -> None:
         """検索テキスト変更イベント（デバウンス処理）"""
         if len(text) >= 2:
             # タイマーをリセットして500ms後に検索実行
@@ -184,7 +188,7 @@ class SearchTab(QWidget):
             self.search_timer.stop()
             self._clear_results()
 
-    def on_perform_search(self):
+    def on_perform_search(self) -> None:
         """検索実行"""
         search_text = self.search_input.text().strip()
 
@@ -213,12 +217,12 @@ class SearchTab(QWidget):
                 self, "検索エラー", f"検索中にエラーが発生しました：\n{str(e)}"
             )
 
-    def on_clear_search(self):
+    def on_clear_search(self) -> None:
         """検索クリア"""
         self.search_input.clear()
         self._clear_results()
 
-    def on_medicine_selected(self, item):
+    def on_medicine_selected(self, item: QListWidgetItem) -> None:
         """薬剤選択"""
         medicine_data = item.data(Qt.ItemDataRole.UserRole)
         if medicine_data:
@@ -226,7 +230,7 @@ class SearchTab(QWidget):
             self.add_button.setEnabled(True)
             self.selected_medicine = medicine_data
 
-    def on_add_to_prescription_tab(self):
+    def on_add_to_prescription_tab(self) -> None:
         """処方箋処理タブに薬剤追加"""
         if not self.selected_medicine:
             return
@@ -259,7 +263,7 @@ class SearchTab(QWidget):
                 self, "エラー", f"薬剤の追加中にエラーが発生しました:\n{str(e)}"
             )
 
-    def _clear_results(self):
+    def _clear_results(self) -> None:
         """検索結果クリア"""
         self.results_list.clear()
         self.result_count_label.setText("0件")
@@ -267,7 +271,9 @@ class SearchTab(QWidget):
         self.detail_text.clear()
         self.add_button.setEnabled(False)
 
-    def _display_search_results(self, results, search_text):
+    def _display_search_results(
+        self, results: list[dict[str, Any]], search_text: str
+    ) -> None:
         """検索結果を表示"""
         self.results_list.clear()
 
@@ -300,7 +306,7 @@ class SearchTab(QWidget):
         else:
             self.search_status.setText(f"「{search_text}」の検索完了")
 
-    def _show_medicine_detail(self, medicine_data):
+    def _show_medicine_detail(self, medicine_data: dict[str, Any]) -> None:
         """薬剤詳細情報表示"""
         detail_html = f"""
         <h3 style="color: #007ACC;">
@@ -397,7 +403,7 @@ class SearchTab(QWidget):
 
         self.detail_text.setHtml(detail_html)
 
-    def _simulate_search(self, search_katakana):
+    def _simulate_search(self, search_katakana: str) -> list[dict[str, Any]]:
         """DB接続失敗時のダミーデータ検索"""
         dummy_medicines = [
             {
@@ -478,8 +484,8 @@ class SearchTab(QWidget):
         filtered_medicines = [
             medicine
             for medicine in dummy_medicines
-            if medicine["medicine_name"].startswith(search_katakana)
-            or medicine["ingredient_name"].startswith(search_katakana)
+            if str(medicine["medicine_name"]).startswith(search_katakana)
+            or str(medicine["ingredient_name"]).startswith(search_katakana)
         ]
 
         return filtered_medicines

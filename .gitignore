@@ -68,6 +68,10 @@ htmlcov/
 .coverage
 .pytest_cache/
 
+# Linter/Formatter cache
+.ruff_cache/
+.mypy_cache/
+
 # Temporary files
 *.tmp
 *.temp

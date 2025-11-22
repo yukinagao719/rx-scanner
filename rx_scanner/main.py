@@ -8,15 +8,19 @@ from PySide6.QtWidgets import QApplication
 from rx_scanner.ui.main_window import MainWindow
 
 
-def setup_logging():
+def setup_logging() -> None:
     """ログ設定（ファイル + 標準出力）"""
     # ログディレクトリ作成
+    log_dir: Path
     if sys.platform == "darwin":  # macOS
         log_dir = Path.home() / "Library" / "Logs" / "RXScanner"
     elif sys.platform == "win32":  # Windows
         log_dir = Path.home() / "AppData" / "Local" / "RXScanner" / "Logs"
-    else:  # Linux
-        log_dir = Path.home() / ".local" / "share" / "RXScanner" / "logs"
+    else:
+        raise OSError(
+            f"Unsupported OS: {sys.platform}. "
+            "This application only supports Windows and macOS."
+        )
 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "app.log"
@@ -51,7 +55,7 @@ def setup_logging():
     root_logger.info(f"log_file: {log_file}")
 
 
-def main():
+def main() -> None:
     setup_logging()
 
     app = QApplication(sys.argv)

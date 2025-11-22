@@ -1,5 +1,10 @@
 # RX Scanner
 
+[![CI](https://github.com/yukinagao719/rx-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/yukinagao719/rx-scanner/actions/workflows/ci.yml)
+[![Release](https://github.com/yukinagao719/rx-scanner/actions/workflows/release.yml/badge.svg)](https://github.com/yukinagao719/rx-scanner/actions/workflows/release.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Prescription OCR and Receipt Data Generation Application
 
 ## Overview
@@ -37,7 +42,30 @@ A desktop application designed to streamline prescription processing in medical 
 - **Development**: Python 3.12 + Poetry
 - **Code Quality**: ruff, mypy, pytest
 
-## Setup
+## Quick Start
+
+### 📥 Download Pre-built Executable (Recommended)
+
+Download the latest release for your platform:
+
+**[→ Download Latest Release](https://github.com/yukinagao719/rx-scanner/releases/latest)**
+
+- **Windows**: `rx-scanner-windows-x86_64.exe` - Just double-click to run
+- **macOS**: `rx-scanner-macos-x86_64` - See installation notes below
+
+#### macOS Installation
+1. Download the file
+2. Right-click → "Open" → Click "Open" again
+
+Or use Terminal:
+```bash
+chmod +x rx-scanner-macos-x86_64
+./rx-scanner-macos-x86_64
+```
+
+---
+
+## Development Setup
 
 ### Prerequisites
 
@@ -49,7 +77,7 @@ A desktop application designed to streamline prescription processing in medical 
 
 1. **Clone Repository**
 ```bash
-git clone https://github.com/yourusername/rx-scanner.git
+git clone https://github.com/yukinagao719/rx-scanner.git
 cd rx-scanner
 ```
 
@@ -57,9 +85,6 @@ cd rx-scanner
 ```bash
 # macOS
 brew install tesseract tesseract-lang
-
-# Ubuntu/Debian
-sudo apt-get install tesseract-ocr tesseract-ocr-jpn
 
 # Windows
 # Download from https://github.com/UB-Mannheim/tesseract/wiki
@@ -166,6 +191,27 @@ rx-scanner/
 - **FTS5 full-text search engine**
 - **Japanese morphological analysis** support
 - **Partial matching & fuzzy search**
+
+## CI/CD Pipeline
+
+This project uses GitHub Actions for automated testing and deployment:
+
+### Continuous Integration (CI)
+- **Automated Testing**: Runs on every push and pull request
+- **Cross-Platform**: Tests on Windows and macOS
+- **Quality Checks**: Linting (ruff), type checking (mypy), unit tests (pytest)
+- **Code Coverage**: Tracked and reported
+
+### Continuous Deployment (CD)
+- **Automated Releases**: Triggered by version tags (e.g., `v0.1.0`)
+- **Multi-Platform Builds**: Generates executables for Windows and macOS
+- **GitHub Releases**: Automatically creates releases with binaries and release notes
+
+**Workflow Status**: Check the [Actions tab](https://github.com/yukinagao719/rx-scanner/actions) for current build status.
+
+## Contributing
+
+For release procedures, see [RELEASE.md](RELEASE.md).
 
 ## License
 

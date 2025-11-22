@@ -10,9 +10,10 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QPoint, Qt, QThread, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -39,13 +40,13 @@ class OCRWorker(QThread):
     finished = Signal(dict)  # OCR結果（抽出されたテキストと薬剤情報）
     error = Signal(str)  # エラーメッセージ
 
-    def __init__(self, image_path):
+    def __init__(self, image_path: str) -> None:
         super().__init__()
         self.logger = logging.getLogger(__name__)
 
         self.image_path = image_path
 
-    def run(self):
+    def run(self) -> None:
         """OCR処理実行"""
         try:
             ocr_processor = OCRProcessor()
@@ -68,33 +69,33 @@ class OCRWorker(QThread):
 class PrescriptionTab(QWidget):
     """処方箋OCRタブクラス"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         # 画像関連
-        self.current_image_path = None
-        self.original_pixmap = None
+        self.current_image_path: str | None = None
+        self.original_pixmap: QPixmap | None = None
 
         # OCR結果
-        self.raw_ocr_text = None
-        self.extracted_medicines = []
+        self.raw_ocr_text: str | None = None
+        self.extracted_medicines: list[dict[str, Any]] = []
 
         # ワーカースレッド
-        self.ocr_worker = None
+        self.ocr_worker: OCRWorker | None = None
 
         # ドラッグ&ドロップ有効化
         self.setAcceptDrops(True)
 
         self.init_ui()
 
-    def dragEnterEvent(self, event):
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         """ドラッグイベント（ファイルがドラッグされた時）"""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
             event.ignore()
 
-    def dropEvent(self, event):
+    def dropEvent(self, event: QDropEvent) -> None:
         """ドロップイベント（ファイルがドロップされた時）"""
         urls = event.mimeData().urls()
         if urls:
@@ -102,12 +103,12 @@ class PrescriptionTab(QWidget):
             file_path = urls[0].toLocalFile()
             self._load_image(file_path)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """ウィンドウリサイズ時に画像も再スケール"""
         super().resizeEvent(event)
         self._update_image_display()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """UI初期化"""
         main_layout = QHBoxLayout(self)
 
@@ -127,7 +128,7 @@ class PrescriptionTab(QWidget):
         # スプリッターの初期比率
         splitter.setSizes([400, 300, 400])
 
-    def setup_image_area(self, parent):
+    def setup_image_area(self, parent: QVBoxLayout | QSplitter) -> None:
         """画像表示エリアを設定"""
         image_group = QGroupBox("処方箋画像")
         group_layout = QVBoxLayout(image_group)
@@ -165,7 +166,7 @@ class PrescriptionTab(QWidget):
         self.open_button.clicked.connect(self.on_open_image)
         self.ocr_button.clicked.connect(self.on_run_ocr)
 
-    def setup_ocr_area(self, parent):
+    def setup_ocr_area(self, parent: QVBoxLayout | QSplitter) -> None:
         """OCR結果表示エリアのUI構築"""
         ocr_group = QGroupBox("抽出された薬剤名")
         group_layout = QVBoxLayout(ocr_group)
@@ -202,7 +203,7 @@ class PrescriptionTab(QWidget):
         self.show_full_text_button.clicked.connect(self.on_show_full_text)
         self.match_button.clicked.connect(self.on_match_medicines)
 
-    def setup_output_area(self, parent):
+    def setup_output_area(self, parent: QVBoxLayout | QSplitter) -> None:
         """確定薬剤リストと出力機能のUI構築"""
         output_group = QGroupBox("確定薬剤リスト")
         group_layout = QVBoxLayout(output_group)
@@ -232,7 +233,7 @@ class PrescriptionTab(QWidget):
         self.clear_button.clicked.connect(self.on_clear_medicine_list)
         self.export_button.clicked.connect(self.on_export_csv)
 
-    def on_open_image(self):
+    def on_open_image(self) -> None:
         """画像ファイルを開く"""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -244,7 +245,7 @@ class PrescriptionTab(QWidget):
         if file_path:
             self._load_image(file_path)
 
-    def on_run_ocr(self):
+    def on_run_ocr(self) -> None:
         """OCR処理を実行"""
         if not self.current_image_path:
             return
@@ -260,7 +261,7 @@ class PrescriptionTab(QWidget):
         self.ocr_worker.error.connect(self.on_ocr_error)
         self.ocr_worker.start()
 
-    def on_ocr_finished(self, result):
+    def on_ocr_finished(self, result: dict[str, Any]) -> None:
         """OCR処理完了時"""
         # 抽出された薬剤情報を保存
         self.extracted_medicines = result.get("medicines", [])
@@ -288,11 +289,13 @@ class PrescriptionTab(QWidget):
 
         # ステータス更新
         medicines_count = len(self.extracted_medicines)
-        self.window().statusbar.showMessage(
-            f"OCR処理完了 - {medicines_count}件の薬剤を抽出"
-        )
+        main_window = self.window()
+        if main_window and hasattr(main_window, "statusbar"):
+            main_window.statusbar.showMessage(  # type: ignore[attr-defined]
+                f"OCR処理完了 - {medicines_count}件の薬剤を抽出"
+            )
 
-    def on_ocr_error(self, error):
+    def on_ocr_error(self, error: str) -> None:
         """OCR処理エラー時"""
         QMessageBox.critical(
             self, "OCRエラー", f"OCR処理中にエラーが発生しました：\n{error}"
@@ -302,7 +305,7 @@ class PrescriptionTab(QWidget):
         self.ocr_button.setEnabled(True)
         self.progress_bar.setVisible(False)
 
-    def on_show_full_text(self):
+    def on_show_full_text(self) -> None:
         """全テキストを表示するダイアログ"""
         dialog = QMessageBox(self)
         dialog.setWindowTitle("OCR全テキスト")
@@ -311,7 +314,7 @@ class PrescriptionTab(QWidget):
         dialog.setIcon(QMessageBox.Icon.Information)
         dialog.exec()
 
-    def on_match_medicines(self):
+    def on_match_medicines(self) -> None:
         """薬剤照合処理"""
         if not self.extracted_medicines:
             QMessageBox.warning(self, "警告", "薬剤名がありません。")
@@ -327,20 +330,23 @@ class PrescriptionTab(QWidget):
                     dialog = MedicineSelectionDialog(medicine_data, self)
                     if dialog.exec() == dialog.DialogCode.Accepted:
                         selected_medicine = dialog.selected_medicine
-                        self._add_medicine_to_confirmed_list(selected_medicine)
+                        if selected_medicine:
+                            self._add_medicine_to_confirmed_list(selected_medicine)
                     # キャンセルされた場合は何もしない
                 else:
                     # 代替薬剤がない場合は直接追加
                     self._add_medicine_to_confirmed_list(medicine_data)
 
-            self.window().statusbar.showMessage("薬剤照合完了")
+            main_window = self.window()
+            if main_window and hasattr(main_window, "statusbar"):
+                main_window.statusbar.showMessage("薬剤照合完了")  # type: ignore[attr-defined]
 
         except Exception as e:
             QMessageBox.critical(
                 self, "エラー", f"薬剤照合中にエラーが発生しました:\n{str(e)}"
             )
 
-    def on_show_medicine_context_menu(self, position):
+    def on_show_medicine_context_menu(self, position: QPoint) -> None:
         """OCR結果リストの右クリックメニューを表示"""
         # 選択されているアイテムを取得
         current_item = self.ocr_results_list.currentItem()
@@ -363,17 +369,17 @@ class PrescriptionTab(QWidget):
             if 0 <= row < len(self.extracted_medicines):
                 del self.extracted_medicines[row]
 
-    def on_remove_selected_medicine(self):
+    def on_remove_selected_medicine(self) -> None:
         """選択された薬剤を削除"""
         current_item = self.confirmed_list.currentItem()
         if current_item:
             self.confirmed_list.takeItem(self.confirmed_list.row(current_item))
 
-    def on_clear_medicine_list(self):
+    def on_clear_medicine_list(self) -> None:
         """薬剤リストをクリア"""
         self.confirmed_list.clear()
 
-    def on_export_csv(self):
+    def on_export_csv(self) -> None:
         """CSVエクスポート"""
         if self.confirmed_list.count() == 0:
             QMessageBox.warning(self, "警告", "エクスポートする薬剤がありません。")
@@ -423,14 +429,16 @@ class PrescriptionTab(QWidget):
                 QMessageBox.information(
                     self, "完了", f"CSVファイルを保存しました:\n{file_path}"
                 )
-                self.window().statusbar.showMessage("CSV出力完了")
+                main_window = self.window()
+                if main_window and hasattr(main_window, "statusbar"):
+                    main_window.statusbar.showMessage("CSV出力完了")  # type: ignore[attr-defined]
 
             except Exception as e:
                 QMessageBox.critical(
                     self, "エラー", f"CSV出力中にエラーが発生しました:\n{str(e)}"
                 )
 
-    def _load_image(self, file_path):
+    def _load_image(self, file_path: str) -> None:
         """画像を読み込んで表示"""
         try:
             # 画像ファイル存在チェック
@@ -477,9 +485,11 @@ class PrescriptionTab(QWidget):
                 self.ocr_button.setEnabled(True)
 
                 # ステータス更新
-                self.window().statusbar.showMessage(
-                    f"画像読み込み完了: {Path(file_path).name}"
-                )
+                main_window = self.window()
+                if main_window and hasattr(main_window, "statusbar"):
+                    main_window.statusbar.showMessage(  # type: ignore[attr-defined]
+                        f"画像読み込み完了: {Path(file_path).name}"
+                    )
             else:
                 QMessageBox.warning(
                     self,
@@ -498,7 +508,7 @@ class PrescriptionTab(QWidget):
                 self, "エラー", f"画像読み込み中にエラーが発生しました:\n{str(e)}"
             )
 
-    def _update_image_display(self):
+    def _update_image_display(self) -> None:
         """画像表示を更新"""
         if self.original_pixmap:
             scaled_pixmap = self.original_pixmap.scaled(
@@ -508,7 +518,7 @@ class PrescriptionTab(QWidget):
             )
             self.image_label.setPixmap(scaled_pixmap)
 
-    def _add_medicine_to_confirmed_list(self, medicine_data):
+    def _add_medicine_to_confirmed_list(self, medicine_data: dict[str, Any]) -> None:
         """薬剤を確定リストに追加"""
         medicine_name = medicine_data["medicine_name"]
         medicine_type = medicine_data["medicine_type"]
@@ -536,7 +546,7 @@ class PrescriptionTab(QWidget):
 
         self.confirmed_list.addItem(full_text)
 
-    def _is_duplicate(self, medicine_text):
+    def _is_duplicate(self, medicine_text: str) -> bool:
         """確定リスト内の重複チェック"""
         for i in range(self.confirmed_list.count()):
             if self.confirmed_list.item(i).text() == medicine_text:

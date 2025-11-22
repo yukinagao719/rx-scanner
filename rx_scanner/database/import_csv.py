@@ -26,7 +26,61 @@ class CSVImporter:
 
         self.logger = logging.getLogger(__name__)
 
-    def read_csv_data(self, csv_path: str | Path) -> list[dict]:
+    def import_to_database(self, csv_path: str | Path) -> int:
+        """
+        CSVデータをDBにインポート
+
+        Args:
+            csv_path: CSVファイルのパス
+
+        Returns:
+            インポート件数
+        """
+        try:
+            # CSVデータを読み込み
+            medicines = self._read_csv_data(csv_path)
+
+            if not medicines:
+                self.logger.warning("No data to import")
+                return 0
+
+            # DBに全薬剤を置き換えてインポート
+            self.logger.info("Starting full medicine replacement import")
+            count = self.db_manager.replace_all_medicines(medicines)
+
+            self.logger.info(f"Import completed: {count} records")
+            return count
+
+        except Exception as e:
+            self.logger.error(f"Import process error: {e}")
+            raise
+
+    def preview_csv_data(self, csv_path: str | Path, limit: int = 10) -> list[dict]:
+        """
+        CSVデータのプレビュー表示
+
+        Args:
+            csv_path: CSVファイルのパス
+            limit: 表示件数
+
+        Returns:
+            プレビューデータのリスト
+        """
+        try:
+            medicines = self._read_csv_data(csv_path)
+            preview_data = medicines[:limit]
+
+            self.logger.info(
+                f"Preview displayed: {len(preview_data)} records "
+                f"(of {len(medicines)} total)"
+            )
+            return preview_data
+
+        except Exception as e:
+            self.logger.error(f"Preview error: {e}")
+            return []
+
+    def _read_csv_data(self, csv_path: str | Path) -> list[dict]:
         """
         CSVファイルから薬剤データを読み込み
 
@@ -104,60 +158,6 @@ class CSVImporter:
             self.logger.error(f"CSV file read error: {e}")
             raise
 
-    def import_to_database(self, csv_path: str | Path) -> int:
-        """
-        CSVデータをDBにインポート
-
-        Args:
-            csv_path: CSVファイルのパス
-
-        Returns:
-            インポート件数
-        """
-        try:
-            # CSVデータを読み込み
-            medicines = self.read_csv_data(csv_path)
-
-            if not medicines:
-                self.logger.warning("No data to import")
-                return 0
-
-            # DBに全薬剤を置き換えてインポート
-            self.logger.info("Starting full medicine replacement import")
-            count = self.db_manager.replace_all_medicines(medicines)
-
-            self.logger.info(f"Import completed: {count} records")
-            return count
-
-        except Exception as e:
-            self.logger.error(f"Import process error: {e}")
-            raise
-
-    def preview_csv_data(self, csv_path: str | Path, limit: int = 10) -> list[dict]:
-        """
-        CSVデータのプレビュー表示
-
-        Args:
-            csv_path: CSVファイルのパス
-            limit: 表示件数
-
-        Returns:
-            プレビューデータのリスト
-        """
-        try:
-            medicines = self.read_csv_data(csv_path)
-            preview_data = medicines[:limit]
-
-            self.logger.info(
-                f"Preview displayed: {len(preview_data)} records "
-                f"(of {len(medicines)} total)"
-            )
-            return preview_data
-
-        except Exception as e:
-            self.logger.error(f"Preview error: {e}")
-            return []
-
     def _parse_price(self, price_data: Any) -> float:
         """
         価格文字列をfloatに変換（カンマ区切りや空白を除去）
@@ -182,7 +182,7 @@ class CSVImporter:
             return 0.0
 
 
-def main():
+def main() -> None:
     # コマンドライン引数の設定
     parser = argparse.ArgumentParser(description="CSV薬剤データをDBにインポート")
     parser.add_argument(
