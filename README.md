@@ -46,6 +46,32 @@ A desktop application designed to streamline prescription processing in medical 
 - **Development**: Python 3.12 + Poetry
 - **Code Quality**: ruff, mypy, pytest
 
+## Screenshots
+
+### Prescription Processing Workflow
+
+**1. Upload Prescription & OCR Processing**
+
+![Prescription Upload and OCR](docs/images/feature-1.webp)
+*Drag-and-drop prescription image upload with automatic OCR text extraction*
+
+**2. Medicine Matching & Selection**
+
+![Alternative Medicine Selection Dialog](docs/images/feature-2.webp)
+*Interactive dialog for selecting medicines with confidence scores and price comparison*
+
+**3. Confirmed Medicine List**
+
+![Confirmed Medicine List](docs/images/feature-3.webp)
+*Final medicine list ready for CSV export with dosage and pricing information*
+
+### Medicine Search
+
+**4. High-Speed Medicine Search**
+
+![Medicine Search](docs/images/feature-4.webp)
+*Real-time search across 12,445 medicine records with Japanese language support*
+
 ## Quick Start
 
 ### 📥 Download Pre-built Executable (Recommended)
