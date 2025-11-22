@@ -3,6 +3,8 @@
 先発・後発品の選択と価格比較機能
 """
 
+from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -16,13 +18,16 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 
 class MedicineSelectionDialog(QDialog):
     """薬剤選択ダイアログ（先発・後発品選択）"""
 
-    def __init__(self, medicine_data, parent=None):
+    def __init__(
+        self, medicine_data: dict[str, Any], parent: QWidget | None = None
+    ) -> None:
         """
         Args:
             medicine_data: 関連薬剤情報付きの薬剤データ
@@ -38,7 +43,7 @@ class MedicineSelectionDialog(QDialog):
 
         self.init_ui()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """UI初期化"""
         layout = QVBoxLayout(self)
 
@@ -57,7 +62,7 @@ class MedicineSelectionDialog(QDialog):
         # データをテーブルに読み込み
         self.populate_data()
 
-    def setup_original_medicine_area(self, parent):
+    def setup_original_medicine_area(self, parent: QVBoxLayout) -> None:
         """元薬剤情報エリア設定"""
         original_group = QGroupBox("抽出された薬剤")
         group_layout = QVBoxLayout(original_group)
@@ -75,7 +80,7 @@ class MedicineSelectionDialog(QDialog):
         group_layout.addWidget(original_info)
         parent.addWidget(original_group)
 
-    def setup_table_area(self, parent):
+    def setup_table_area(self, parent: QVBoxLayout) -> None:
         """テーブルエリア設定"""
         table_group = QGroupBox("選択可能な薬剤（価格順）")
         group_layout = QVBoxLayout(table_group)
@@ -109,7 +114,7 @@ class MedicineSelectionDialog(QDialog):
         # シグナル接続
         self.medicine_table.itemSelectionChanged.connect(self.on_selection_changed)
 
-    def setup_selection_info_area(self, parent):
+    def setup_selection_info_area(self, parent: QVBoxLayout) -> None:
         """選択情報エリア設定"""
         self.selection_info = QLabel("薬剤を選択してください")
         self.selection_info.setStyleSheet(
@@ -117,7 +122,7 @@ class MedicineSelectionDialog(QDialog):
         )
         parent.addWidget(self.selection_info)
 
-    def setup_button_area(self, parent):
+    def setup_button_area(self, parent: QVBoxLayout) -> None:
         """ボタンエリア設定"""
         button_layout = QHBoxLayout()
 
@@ -135,7 +140,7 @@ class MedicineSelectionDialog(QDialog):
         self.select_button.clicked.connect(self.on_accept_selection)
         self.cancel_button.clicked.connect(self.reject)
 
-    def on_selection_changed(self):
+    def on_selection_changed(self) -> None:
         """選択変更イベント"""
         row = self.medicine_table.currentRow()
         if row < 0:
@@ -162,7 +167,7 @@ class MedicineSelectionDialog(QDialog):
             self.select_button.setEnabled(True)
             self.selected_medicine = selected_medicine
 
-    def on_accept_selection(self):
+    def on_accept_selection(self) -> None:
         """選択確定"""
         if not self.selected_medicine:
             QMessageBox.warning(self, "エラー", "薬剤を選択してください")
@@ -183,7 +188,7 @@ class MedicineSelectionDialog(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             self.accept()
 
-    def populate_data(self):
+    def populate_data(self) -> None:
         """テーブルにデータを設定"""
         alternatives = self.medicine_data.get("alternative_medicines", [])
 

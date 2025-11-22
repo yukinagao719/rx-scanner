@@ -5,7 +5,7 @@
 メニューバー、ステータスバー、タブ切り替え機能を実装
 """
 
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
@@ -21,13 +21,13 @@ from .search_tab import SearchTab
 class MainWindow(QMainWindow):
     """アプリケーションのメインウィンドウ"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.init_ui()
         self.setup_menubar()
         self.setup_statusbar()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: QCloseEvent) -> None:
         """ウィンドウを閉じる時の処理"""
         # 保存されていない薬剤リストがあるかチェック
         if self.prescription_tab.confirmed_list.count() > 0:
@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
             # 薬剤リストが空の場合は確認なしで終了
             event.accept()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """UI初期化（ウィンドウ設定、タブ作成）"""
         self.setWindowTitle("RX Scanner")
         self.setGeometry(100, 100, 1200, 800)
@@ -71,7 +71,7 @@ class MainWindow(QMainWindow):
         # タブ切り替え時のシグナル接続
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
 
-    def setup_menubar(self):
+    def setup_menubar(self) -> None:
         """メニューバー設定"""
         menubar = self.menuBar()
 
@@ -100,19 +100,19 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self.on_show_about)
         help_menu.addAction(about_action)
 
-    def setup_statusbar(self):
+    def setup_statusbar(self) -> None:
         """ステータスバー設定"""
         self.statusbar = self.statusBar()
         self.statusbar.showMessage("準備完了")
 
-    def on_tab_changed(self, index):
+    def on_tab_changed(self, index: int) -> None:
         """タブ切り替え時の処理"""
         if index == 0:
             self.statusbar.showMessage("処方箋OCRタブ")
         elif index == 1:
             self.statusbar.showMessage("薬剤検索タブ")
 
-    def on_show_about(self):
+    def on_show_about(self) -> None:
         """バージョン情報表示"""
         QMessageBox.about(
             self,

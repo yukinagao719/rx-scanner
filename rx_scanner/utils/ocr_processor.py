@@ -24,6 +24,8 @@ from rx_scanner.utils.text_utils import normalize_to_katakana
 class OCRProcessor:
     """OCR処理クラス"""
 
+    db_manager: DatabaseManager | None
+
     # 剤形リスト
     DOSAGE_FORMS = [
         "錠",
@@ -64,7 +66,7 @@ class OCRProcessor:
         "バッグ",
     ]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
 
         # DB接続
@@ -93,7 +95,20 @@ class OCRProcessor:
             image_path: 画像ファイルパス
 
         Returns:
-            解析済み処方箋データ
+            解析済み処方箋データ（dict）
+                - medicines (list[dict]): 抽出された薬剤情報のリスト
+                    - medicine_name (str): 薬剤名
+                    - ingredient_name (str): 成分名
+                    - specification (str): 規格
+                    - manufacturer (str): メーカー名
+                    - medicine_type (str): 薬剤タイプ（先発品/後発品/その他）
+                    - price (float): 薬価
+                    - confidence (float): 信頼度（0.0-1.0）
+                    - matched_word (str): マッチしたOCRワード
+                    - has_alternatives (bool): 代替薬剤の有無
+                    - alternative_medicines (list[dict]): 代替薬剤リスト
+                    - display_name (str): 表示名（薬剤名 or 成分名）
+                - raw_text (str): OCR抽出テキスト（全文）
         """
         # 前処理
         preprocessed = self._preprocess_image(image_path)
@@ -110,7 +125,7 @@ class OCRProcessor:
         self, image_path: str, scale: float = 2, denoise: int = 0
     ) -> np.ndarray:
         """
-        画像前処理（最適化版）
+        画像前処理
 
         Args:
             image_path: 画像ファイルパス
@@ -172,7 +187,10 @@ class OCRProcessor:
             image: 前処理済み画像
 
         Returns:
-            (テキスト, 行番号)のタプルのリスト
+            OCR抽出結果のリスト（信頼度30未満・空文字は除外）
+            各要素は (テキスト, 行番号) のタプル
+                - テキスト (str): OCRで認識した文字列
+                - 行番号 (int): テキストが存在する行番号
         """
         try:
             # PILイメージに変換
@@ -216,7 +234,20 @@ class OCRProcessor:
             text_regions: OCR結果の(テキスト, 行番号)のリスト
 
         Returns:
-            解析済み処方箋データ
+            解析済み処方箋データ（dict）
+                - medicines (list[dict]): 抽出された薬剤情報のリスト
+                    - medicine_name (str): 薬剤名
+                    - ingredient_name (str): 成分名
+                    - specification (str): 規格
+                    - manufacturer (str): メーカー名
+                    - medicine_type (str): 薬剤タイプ（先発品/後発品/その他）
+                    - price (float): 薬価
+                    - confidence (float): 信頼度（0.0-1.0）
+                    - matched_word (str): マッチしたOCRワード
+                    - has_alternatives (bool): 代替薬剤の有無
+                    - alternative_medicines (list[dict]): 代替薬剤リスト
+                    - display_name (str): 表示名（薬剤名 or 成分名）
+                - raw_text (str): OCR抽出テキスト（全文）
         """
         try:
             # UI表示用の全テキスト
@@ -255,7 +286,7 @@ class OCRProcessor:
             self.logger.error(f"Prescription parsing failed: {e}")
             raise
 
-    def _setup_tesseract_path(self):
+    def _setup_tesseract_path(self) -> None:
         """
         Tesseractのパスをクロスプラットフォームで設定
 
@@ -291,10 +322,11 @@ class OCRProcessor:
                 r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
             ]
         else:
-            # サポート対象外のOS（Linux）
+            # サポート対象外のOS
             possible_paths = []
-            self.logger.warning(
-                f"OS '{system}' is not officially supported. "
+            self.logger.error(
+                f"Unsupported OS: {system}. "
+                "This application only supports Windows and macOS. "
                 "Please set TESSERACT_CMD or add tesseract to PATH"
             )
 
@@ -319,7 +351,19 @@ class OCRProcessor:
             text: 1行分の正規化済みOCRテキスト
 
         Returns:
-            抽出された薬剤情報のリスト
+            抽出された薬剤情報のリスト（拡充済み）
+            各要素は薬剤情報のdict
+                - medicine_name (str): 薬剤名
+                - ingredient_name (str): 成分名
+                - specification (str): 規格
+                - manufacturer (str): メーカー名
+                - medicine_type (str): 薬剤タイプ（先発品/後発品/その他）
+                - price (float): 薬価
+                - confidence (float): 信頼度（0.0-1.0）
+                - matched_word (str): マッチしたOCRワード
+                - has_alternatives (bool): 代替薬剤の有無
+                - alternative_medicines (list[dict]): 代替薬剤リスト
+                - display_name (str): 表示名（薬剤名 or 成分名）
         """
         # DB検索
         database_matches = self._match_with_database(text)
@@ -342,6 +386,16 @@ class OCRProcessor:
 
         Returns:
             DBマッチした薬剤のリスト（重複除去前）
+            各要素は薬剤情報のdict
+                - medicine_name (str): 薬剤名
+                - ingredient_name (str): 成分名
+                - specification (str): 規格
+                - manufacturer (str): メーカー名
+                - medicine_type (str): 薬剤タイプ（先発品/後発品/その他）
+                - price (float): 薬価
+                - confidence (float): 信頼度（0.70-1.00）
+                - matched_word (str): マッチしたOCRワード
+                - is_similarity_match (bool): 類似度検索マッチ（オプション）
         """
         try:
             # DB接続チェック
@@ -519,6 +573,14 @@ class OCRProcessor:
 
         Returns:
             類似度でフィルタされた検索結果のリスト
+            各要素は薬剤情報のdict
+                - medicine_name (str): 薬剤名
+                - ingredient_name (str): 成分名
+                - specification (str): 規格
+                - manufacturer (str): メーカー名
+                - medicine_type (str): 薬剤タイプ（先発品/後発品/その他）
+                - price (float): 薬価
+                - is_similarity_match (bool): True（類似度検索フラグ）
         """
         try:
             # DB接続チェック
@@ -602,7 +664,16 @@ class OCRProcessor:
             medicines: 薬剤情報のリスト
 
         Returns:
-            成分ごとに最適な薬剤のリスト
+            成分ごとに最適な薬剤のリスト（重複除去済み）
+            各要素は薬剤情報のdict
+                - medicine_name (str): 薬剤名
+                - ingredient_name (str): 成分名
+                - specification (str): 規格
+                - manufacturer (str): メーカー名
+                - medicine_type (str): 薬剤タイプ
+                - price (float): 薬価
+                - confidence (float): 信頼度
+                - matched_word (str): マッチしたOCRワード
         """
         if not medicines:
             return []
@@ -658,7 +729,9 @@ class OCRProcessor:
             specification: 規格文字列
 
         Returns:
-            抽出された数値（数値がない場合はfloat("inf")）
+            抽出された数値（float）
+                - 数値が見つかった場合: その数値（例: 5.0）
+                - 数値がない場合: float("inf")
         """
         # 全角を半角に変換
         spec_normalized = specification.translate(
@@ -683,6 +756,10 @@ class OCRProcessor:
 
         Returns:
             拡充された薬剤リスト
+            各要素は薬剤情報のdict（入力の全フィールド + 以下を追加）
+                - has_alternatives (bool): 代替薬剤の有無
+                - alternative_medicines (list[dict]): 代替薬剤リスト
+                - display_name (str): 表示名（薬剤名 or 成分名）
         """
         try:
             # DB接続チェック

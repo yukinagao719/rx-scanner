@@ -5,6 +5,7 @@
 
 import logging
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -29,7 +30,7 @@ class DatabaseManager:
         self.init_database()
 
     @contextmanager
-    def get_connection(self):
+    def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         """DB接続のコンテキストマネージャー"""
         conn = None
 
@@ -60,7 +61,7 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
-    def init_database(self):
+    def init_database(self) -> None:
         """DBテーブルの初期化"""
         with self.get_connection() as conn:
             # 薬剤マスタテーブル作成
@@ -106,7 +107,15 @@ class DatabaseManager:
             limit: 結果件数上限
 
         Returns:
-            検索結果のリスト
+            検索結果のリスト（各要素は薬剤情報のdict）
+                - classification (str): 区分（内用薬/外用薬等）
+                - ingredient_name (str): 成分名
+                - specification (str): 規格
+                - medicine_name (str): 薬剤名
+                - manufacturer (str): メーカー名
+                - price (float): 薬価
+                - medicine_type (str): 薬剤タイプ（先発品/後発品/その他）
+                - created_at (str): 登録日時
         """
         query = query.strip()
 
@@ -138,7 +147,16 @@ class DatabaseManager:
             exclude_medicine_name: 除外する薬剤名（検索結果から除く）
 
         Returns:
-            代替薬剤のリスト
+            代替薬剤のリスト（薬剤タイプ・価格順でソート）
+            各要素は薬剤情報のdict
+                - classification (str): 区分（内用薬/外用薬等）
+                - ingredient_name (str): 成分名
+                - specification (str): 規格
+                - medicine_name (str): 薬剤名
+                - manufacturer (str): メーカー名
+                - price (float): 薬価
+                - medicine_type (str): 薬剤タイプ（先発品/後発品/その他）
+                - created_at (str): 登録日時
         """
         try:
             with self.get_connection() as conn:
@@ -226,7 +244,7 @@ class DatabaseManager:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """
             cursor = conn.executemany(sql, insert_data)
-            inserted_count = cursor.rowcount
+            inserted_count: int = cursor.rowcount
             self.logger.info(f"New medicine data inserted: {inserted_count} records")
 
             # 4.FTSインデックス再構築
@@ -247,7 +265,12 @@ class DatabaseManager:
         DB統計情報を取得
 
         Returns:
-            統計情報辞書
+            統計情報のdict
+                - total_medicines (int): 総薬剤数
+                - total_ingredients (int): 成分数
+                - classification_breakdown (dict[str, int]): 区分別内訳
+                - medicine_type_breakdown (dict[str, int]): 薬剤タイプ別内訳
+                - db_size (int): DBファイルサイズ（バイト）
         """
         with self.get_connection() as conn:
             stats = {}

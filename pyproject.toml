@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 [project]
 name = "rx-scanner"
 version = "0.1.0"
-description = "処方箋OCR・レセプトデータ作成アプリ"
+description = "処方箋OCRアプリ"
 authors = [
     {name = "Yuki Nagao", email = "dev@curifun.com"}
 ]
@@ -19,9 +19,6 @@ dependencies = [
     "Pillow>=10.0.0",
     "pandas>=2.1.0,<3.0",
     "numpy>=1.26.0",
-    "sqlalchemy>=2.0.0,<3.0",
-    "openpyxl>=3.1.0",
-    "python-dotenv>=1.0.0",
     "rapidfuzz>=3.0.0,<4.0",
 ]
 
@@ -32,6 +29,7 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.13.0",
     "PySide6-stubs>=6.6.0",
+    "pandas-stubs>=2.1.0",
 ]
 
 [tool.poetry]
