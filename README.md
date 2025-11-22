@@ -1,6 +1,7 @@
 # RX Scanner
 
 [![CI](https://github.com/yukinagao719/rx-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/yukinagao719/rx-scanner/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/yukinagao719/rx-scanner/branch/main/graph/badge.svg)](https://codecov.io/gh/yukinagao719/rx-scanner)
 [![Release](https://github.com/yukinagao719/rx-scanner/actions/workflows/release.yml/badge.svg)](https://github.com/yukinagao719/rx-scanner/actions/workflows/release.yml)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -54,11 +55,8 @@ Download the latest release for your platform:
 - **macOS**: `rx-scanner-macos-x86_64` - See installation notes below
 
 #### macOS Installation
-1. Download the file
-2. Right-click → "Open" → Click "Open" again
-
-Or use Terminal:
 ```bash
+# Download and run
 chmod +x rx-scanner-macos-x86_64
 ./rx-scanner-macos-x86_64
 ```

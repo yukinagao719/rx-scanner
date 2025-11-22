@@ -34,8 +34,11 @@ jobs:
           pip install -e .
           pip install pyinstaller
 
+      - name: Generate database
+        run: python -m rx_scanner.database.import_csv data/medicine_list_20251001.csv
+
       - name: Build executable with PyInstaller
-        run: pyinstaller --name rx-scanner --onefile --windowed --add-data "rx_scanner:rx_scanner" rx_scanner/main.py
+        run: pyinstaller --name rx-scanner --onefile --windowed --add-data "rx_scanner:rx_scanner" --add-data "data/medicine_data.db:data" rx_scanner/main.py
 
       - name: Rename executable (Unix)
         if: runner.os != 'Windows'
