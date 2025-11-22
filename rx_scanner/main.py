@@ -11,6 +11,7 @@ from rx_scanner.ui.main_window import MainWindow
 def setup_logging() -> None:
     """ログ設定（ファイル + 標準出力）"""
     # ログディレクトリ作成
+    log_dir: Path
     if sys.platform == "darwin":  # macOS
         log_dir = Path.home() / "Library" / "Logs" / "RXScanner"
     elif sys.platform == "win32":  # Windows
